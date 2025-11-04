@@ -1,0 +1,49 @@
+export interface Video {
+  id: string;
+  file: File;
+  name: string;
+  duration: number;
+  width: number;
+  height: number;
+  importedAt: string;
+}
+
+export interface SubtitleSegment {
+  startTime: number;
+  endTime: number;
+  text: string;
+}
+
+export interface Subtitles {
+  id: string; // same as videoId
+  videoId: string;
+  segments: SubtitleSegment[];
+}
+
+export interface Analysis {
+  id: string; // e.g., `${videoId}-${type}`
+  videoId: string;
+  type: AnalysisType;
+  prompt: string;
+  result: string;
+  createdAt: string;
+}
+
+export type AnalysisType = 'summary' | 'key-info' | 'topics' | 'chat';
+
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+  image?: string; // base64 data URL
+}
+
+export interface Note {
+  id: string; // same as videoId
+  videoId: string;
+  content: string;
+  updatedAt: string;
+}
+
+export interface APIConfig {
+  geminiApiKey: string;
+}
