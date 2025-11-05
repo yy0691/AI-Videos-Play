@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import VideoDetail from './components/VideoDetail';
-import SettingsModal from './components/SettingsModal';
 import WelcomeScreen from './components/WelcomeScreen';
-import { Video, Subtitles, Analysis, APIConfig, Note } from './types';
-import { videoDB, subtitleDB, analysisDB, settingsDB, noteDB, appDB } from './services/dbService';
+import { Video, Subtitles, Analysis, Note } from './types';
+import { videoDB, subtitleDB, analysisDB, noteDB, appDB } from './services/dbService';
 import { getVideoMetadata } from './utils/helpers';
 
 const App: React.FC = () => {
@@ -13,22 +12,17 @@ const App: React.FC = () => {
   const [analyses, setAnalyses] = useState<Record<string, Analysis[]>>({});
   const [notes, setNotes] = useState<Record<string, Note>>({});
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [apiConfig, setApiConfig] = useState<APIConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-        const [loadedVideos, config] = await Promise.all([
-          videoDB.getAll(),
-          settingsDB.getAPIConfig()
-        ]);
+        const loadedVideos = await videoDB.getAll();
         
         // Sort videos by importedAt date, newest first
         loadedVideos.sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime());
 
         setVideos(loadedVideos);
-        setApiConfig(config || null);
         
         if (loadedVideos.length > 0 && !selectedVideoId) {
             setSelectedVideoId(loadedVideos[0].id);
@@ -78,18 +72,24 @@ const App: React.FC = () => {
     setTimeout(() => setError(null), 5000);
   }
 
-  const handleImportVideo = async (file: File) => {
+  const handleImportVideo = async (file: File, folderPath?: string) => {
     try {
       const metadata = await getVideoMetadata(file);
       const newVideo: Video = {
-        id: `${file.name}-${file.lastModified}`,
+        id: `${folderPath ? folderPath + '/' : ''}${file.name}-${file.lastModified}`,
         file,
         name: file.name,
+        folderPath,
         ...metadata,
         importedAt: new Date().toISOString(),
       };
+      if (videos.some(v => v.id === newVideo.id)) {
+        console.warn(`Video "${newVideo.name}" from "${folderPath}" already imported.`);
+        // Optionally, select the existing video
+        setSelectedVideoId(newVideo.id);
+        return;
+      }
       await videoDB.put(newVideo);
-      // Add to the beginning of the list and sort
       setVideos(prev => {
           const updated = [newVideo, ...prev];
           updated.sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime());
@@ -97,13 +97,39 @@ const App: React.FC = () => {
       });
       setSelectedVideoId(newVideo.id);
     } catch (err) {
-      handleError(err, "Failed to import video.");
+      handleError(err, `Failed to import video: ${file.name}`);
     }
   };
 
-  const handleSaveSettings = async (config: APIConfig) => {
-    await settingsDB.setAPIConfig(config);
-    setApiConfig(config);
+  const handleImportFolderSelection = async (files: FileList) => {
+    if (!files || files.length === 0) {
+      return;
+    }
+  
+    try {
+      // Create a list of all videos to be imported to process them.
+      const videosToImport: { file: File; folderPath: string }[] = [];
+      for (const file of Array.from(files)) {
+        if (file.type.startsWith('video/')) {
+          const relativePath = (file as any).webkitRelativePath || file.name;
+          const folderPath = relativePath.substring(0, relativePath.lastIndexOf('/'));
+          videosToImport.push({ file, folderPath });
+        }
+      }
+      
+      if (videosToImport.length === 0) {
+        handleError(new Error("No video files found in the selected folder."), "No videos found.");
+        return;
+      }
+      
+      // Using a for...of loop to import sequentially and wait for each one
+      for (const { file, folderPath } of videosToImport) {
+        await handleImportVideo(file, folderPath);
+      }
+  
+    } catch (err) {
+      handleError(err, "An error occurred while importing the folder.");
+    }
   };
 
   const handleDeleteVideo = async (videoId: string) => {
@@ -125,7 +151,7 @@ const App: React.FC = () => {
   const selectedVideo = videos.find(v => v.id === selectedVideoId);
 
   return (
-    <div className="h-screen w-screen flex bg-white font-sans">
+    <div className="h-screen w-screen flex font-sans">
       {error && (
         <div className="absolute top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg z-50" role="alert">
           <strong className="font-bold">Error: </strong>
@@ -138,8 +164,10 @@ const App: React.FC = () => {
                 videos={videos}
                 selectedVideoId={selectedVideoId}
                 onSelectVideo={setSelectedVideoId}
-                onImportVideo={handleImportVideo}
-                onShowSettings={() => setIsSettingsOpen(true)}
+                onImportVideo={(file) => handleImportVideo(file)}
+                onImportFolderSelection={handleImportFolderSelection}
+                isCollapsed={isSidebarCollapsed}
+                onToggle={() => setIsSidebarCollapsed(prev => !prev)}
             />
             <main className="flex-1 flex flex-col overflow-hidden">
                 <VideoDetail 
@@ -147,23 +175,15 @@ const App: React.FC = () => {
                     subtitles={subtitles[selectedVideo.id] || null}
                     analyses={analyses[selectedVideo.id] || []}
                     note={notes[selectedVideo.id] || null}
-                    apiConfig={apiConfig}
                     onAnalysesChange={loadDataForVideo}
                     onSubtitlesChange={loadDataForVideo}
-                    onShowSettings={() => setIsSettingsOpen(true)}
                     onDeleteVideo={handleDeleteVideo}
                 />
             </main>
          </>
       ) : (
-          <WelcomeScreen onImportVideo={handleImportVideo} />
+          <WelcomeScreen onImportVideo={(file) => handleImportVideo(file)} onImportFolderSelection={handleImportFolderSelection} />
       )}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        onSave={handleSaveSettings}
-        initialConfig={apiConfig || { geminiApiKey: '' }}
-      />
     </div>
   );
 };

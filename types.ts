@@ -6,6 +6,7 @@ export interface Video {
   width: number;
   height: number;
   importedAt: string;
+  folderPath?: string;
 }
 
 export interface SubtitleSegment {
@@ -42,8 +43,4 @@ export interface Note {
   videoId: string;
   content: string;
   updatedAt: string;
-}
-
-export interface APIConfig {
-  geminiApiKey: string;
 }

@@ -1,5 +1,6 @@
 import { openDB, DBSchema } from 'idb';
-import { Video, Subtitles, Analysis, APIConfig, Note } from '../types';
+// Fix: Removed APIConfig from imports as it is no longer used.
+import { Video, Subtitles, Analysis, Note } from '../types';
 
 const DB_NAME = 'LocalVideoAnalyzerDB';
 const DB_VERSION = 2;
@@ -22,10 +23,6 @@ interface AppDB extends DBSchema {
     key: string;
     value: Note;
   };
-  settings: {
-    key: string;
-    value: any;
-  };
 }
 
 const dbPromise = openDB<AppDB>(DB_NAME, DB_VERSION, {
@@ -43,10 +40,7 @@ const dbPromise = openDB<AppDB>(DB_NAME, DB_VERSION, {
      if (!db.objectStoreNames.contains('notes')) {
       db.createObjectStore('notes', { keyPath: 'id' });
     }
-    if (!db.objectStoreNames.contains('settings')) {
-      // Use out-of-line keys for the settings store, as keys are provided explicitly.
-      db.createObjectStore('settings');
-    }
+    // Fix: Removed settings store to comply with API key guidelines.
   },
 });
 
@@ -98,14 +92,7 @@ export const noteDB = {
   },
 };
 
-export const settingsDB = {
-  async getAPIConfig(): Promise<APIConfig | undefined> {
-    return (await dbPromise).get('settings', 'apiConfig');
-  },
-  async setAPIConfig(config: APIConfig) {
-    return (await dbPromise).put('settings', config, 'apiConfig');
-  },
-};
+// Fix: Removed settingsDB to comply with API key guidelines.
 
 export const appDB = {
   async deleteVideo(videoId: string) {

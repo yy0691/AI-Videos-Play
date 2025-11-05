@@ -1,19 +1,16 @@
-import { GoogleGenAI, GenerateContentResponse, Content } from '@google/genai';
+import { GoogleGenAI, Content } from '@google/genai';
 import { fileToBase64 } from '../utils/helpers';
 
 const MODEL_NAME = 'gemini-2.5-pro';
 
 export async function analyzeVideoWithGemini(
-  apiKey: string,
   videoFile: File,
   prompt: string
 ): Promise<string> {
-  if (!apiKey) {
-    throw new Error('Gemini API key is not configured.');
-  }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    // Fix: Use API key from environment variable as per guidelines.
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const videoBase64 = await fileToBase64(videoFile);
 
     const response = await ai.models.generateContent({
@@ -42,14 +39,13 @@ export async function analyzeVideoWithGemini(
 }
 
 export async function generateChatResponse(
-    apiKey: string,
     history: Content[],
     userMessage: { text: string; imageB64DataUrl?: string },
     videoFile: File,
     subtitlesText: string | null
 ): Promise<string> {
-    if (!apiKey) throw new Error('Gemini API key is not configured.');
-    const ai = new GoogleGenAI({ apiKey });
+    // Fix: Use API key from environment variable as per guidelines.
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const userParts: any[] = [];
     // Only add video if it's the very first user message in the whole conversation

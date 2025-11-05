@@ -3,7 +3,8 @@ import { Video, Note } from '../types';
 import { noteDB } from '../services/dbService';
 
 const useDebouncedCallback = (callback: (...args: any[]) => void, delay: number) => {
-  const timeoutRef = useRef<number>();
+  // Fix: Explicitly initialize useRef with undefined to fix "Expected 1 arguments, but got 0" error.
+  const timeoutRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     // Cleanup timeout on component unmount
@@ -42,7 +43,7 @@ const NotesPanel: React.FC<NotesPanelProps> = ({ video, note }) => {
     setContent(note?.content || '');
     setLastSaved(note ? new Date(note.updatedAt) : null);
     setStatus('idle');
-  }, [video.id]);
+  }, [video.id, note]);
 
   const saveNote = useCallback(async (newContent: string) => {
       setStatus('saving');
@@ -90,11 +91,11 @@ const NotesPanel: React.FC<NotesPanelProps> = ({ video, note }) => {
         value={content}
         onChange={handleChange}
         placeholder="Write your notes here... Changes are saved automatically."
-        className="flex-1 w-full bg-white rounded-lg p-3 text-sm border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition resize-none"
+        className="flex-1 w-full bg-white/40 rounded-lg p-3 text-sm border border-white/20 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition resize-none backdrop-blur-sm"
         aria-label="Video notes"
       />
       <div className="mt-2 flex justify-end items-center">
-        <p className="text-xs text-gray-500 italic">
+        <p className="text-xs text-slate-500 italic">
           {getStatusText()}
         </p>
       </div>
