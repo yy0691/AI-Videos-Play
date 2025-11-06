@@ -1,21 +1,193 @@
 import { GoogleGenAI, Content } from '@google/genai';
 import { fileToBase64 } from '../utils/helpers';
+import { getEffectiveSettings } from './dbService';
+import { APISettings } from '../types';
 
-const MODEL_NAME = 'gemini-2.5-pro';
+const DEFAULT_MODEL = 'gemini-2.5-flash';
 
-export async function analyzeVideoWithGemini(
+async function getAIConfig(): Promise<{ai: GoogleGenAI, settings: APISettings, apiKey: string}> {
+    const settings = await getEffectiveSettings();
+    const apiKey = settings.apiKey;
+    if (!apiKey) {
+        throw new Error("API Key is not configured. Please set it in the settings or configure the system environment variable.");
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    return { ai, settings, apiKey };
+}
+
+async function generateContentWithCustomAPI(
+    settings: APISettings,
+    apiKey: string,
+    contents: any,
+    systemInstruction?: string,
+): Promise<string> {
+    const baseUrl = settings.baseUrl;
+    if (!baseUrl) {
+        throw new Error("baseUrl is not defined for custom API call");
+    }
+
+    const modelName = settings.model || DEFAULT_MODEL;
+    const url = `${baseUrl.replace(/\/$/, '')}/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    
+    const payload: any = {
+        contents: Array.isArray(contents) ? contents : [contents]
+    };
+
+    if (systemInstruction) {
+        payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+    }
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }));
+        throw new Error(`API request failed: ${errorData.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    const text = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '';
+    if (!text && data.candidates?.[0]?.finishReason) {
+        // If there's no text but a finish reason, it could be a safety block or other issue.
+        if (data.candidates[0].finishReason !== "STOP") {
+             throw new Error(`Model returned no content. Finish reason: ${data.candidates[0].finishReason}`);
+        }
+    }
+    
+    return text;
+}
+
+
+export async function analyzeVideo(params: {
+  prompt: string;
+  frames?: string[];
+  subtitlesText?: string;
+}): Promise<string> {
+  const { prompt, frames, subtitlesText } = params;
+
+  try {
+    const { ai, settings, apiKey } = await getAIConfig();
+    const modelName = settings.model;
+
+    let fullPrompt: string;
+    let contents: Content;
+
+    if (subtitlesText) {
+      // Use subtitles for analysis
+      fullPrompt = `Analyze the following video transcript and respond to the request.\n\nTranscript:\n${subtitlesText}\n\nRequest: ${prompt}`;
+      contents = { role: 'user', parts: [{ text: fullPrompt }] };
+    } else if (frames) {
+      // Fallback to frames
+      fullPrompt = `Analyze these sampled frames from a video and respond to the following request. The frames are presented in chronological order.\n\nRequest: ${prompt}`;
+      contents = {
+        role: 'user',
+        parts: [
+          ...frames.map(frameData => ({
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: frameData,
+            },
+          })),
+          { text: fullPrompt },
+        ],
+      };
+    } else {
+      throw new Error("Either frames or subtitlesText must be provided for analysis.");
+    }
+    
+    if (settings.baseUrl) {
+        return generateContentWithCustomAPI(settings, apiKey, contents);
+    }
+
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents,
+    });
+
+    return response.text;
+  } catch (error) {
+    console.error('Error analyzing video with AI:', error);
+    if (error instanceof Error) {
+        if (error.message.includes('API key not valid') || error.message.includes('API request failed')) {
+             throw new Error("The provided API Key or Base URL is invalid. Please check your settings.");
+        }
+        throw error;
+    }
+    throw new Error('An unknown error occurred during analysis.');
+  }
+}
+
+export async function generateChatResponse(
+    history: Content[],
+    userMessage: { text: string; imageB64DataUrl?: string },
+    media: { frames?: string[] },
+    subtitlesText: string | null,
+    systemInstruction: string,
+): Promise<string> {
+    try {
+        const { ai, settings, apiKey } = await getAIConfig();
+        const modelName = settings.model;
+
+        const userParts: any[] = [];
+        if (history.filter(h => h.role === 'user').length === 0 && media.frames) {
+            userParts.push(...media.frames.map(frameData => ({ 
+                inlineData: { mimeType: 'image/jpeg', data: frameData }
+            })));
+            systemInstruction += "\n\nYou will be analyzing a video based on sampled frames. These frames will be provided in the user's first message.";
+        }
+        if (userMessage.imageB64DataUrl) {
+            const [meta, data] = userMessage.imageB64DataUrl.split(',');
+            const mimeType = meta.split(';')[0].split(':')[1];
+            userParts.push({ inlineData: { mimeType, data } });
+        }
+        userParts.push({ text: userMessage.text });
+
+        const contents = [...history, { role: 'user', parts: userParts }];
+        
+        if (subtitlesText) {
+            systemInstruction += `\n\nUse the following transcript as the primary source of information for your answers, but verify with the video content if necessary:\n\nTRANSCRIPT:\n${subtitlesText}`;
+        }
+        
+        if (settings.baseUrl) {
+            return generateContentWithCustomAPI(settings, apiKey, contents, systemInstruction);
+        }
+        
+        const response = await ai.models.generateContent({
+            model: modelName,
+            contents,
+            config: { systemInstruction },
+        });
+        return response.text;
+    } catch (error) {
+        console.error('Error in chat response with AI:', error);
+        if (error instanceof Error) {
+            if (error.message.includes('API key not valid') || error.message.includes('API request failed')) {
+                throw new Error("The provided API Key or Base URL is invalid. Please check your settings.");
+            }
+            throw error;
+        }
+        throw new Error('An unknown error occurred during chat response generation.');
+    }
+}
+
+
+export async function generateSubtitles(
   videoFile: File,
   prompt: string
 ): Promise<string> {
-
   try {
-    // Fix: Use API key from environment variable as per guidelines.
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const { ai, settings, apiKey } = await getAIConfig();
+    const modelName = settings.model;
+    
     const videoBase64 = await fileToBase64(videoFile);
-
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: {
+    
+    const contents = {
         parts: [
           {
             inlineData: {
@@ -25,52 +197,114 @@ export async function analyzeVideoWithGemini(
           },
           { text: prompt },
         ],
-      },
+    };
+
+    if (settings.baseUrl) {
+        return generateContentWithCustomAPI(settings, apiKey, contents);
+    }
+    
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents,
     });
 
     return response.text;
   } catch (error) {
-    console.error('Error analyzing video with Gemini:', error);
-    if (error instanceof Error) {
-        return `An error occurred during analysis: ${error.message}`;
+    console.error('Error generating subtitles with AI:', error);
+     if (error instanceof Error) {
+        if (error.message.includes('API key not valid') || error.message.includes('API request failed')) {
+             throw new Error("The provided API Key or Base URL is invalid. Please check your settings.");
+        }
+        throw new Error(`An error occurred during subtitle generation: ${error.message}`);
     }
-    return 'An unknown error occurred during analysis.';
+    throw new Error('An unknown error occurred during subtitle generation.');
   }
 }
 
-export async function generateChatResponse(
-    history: Content[],
-    userMessage: { text: string; imageB64DataUrl?: string },
-    videoFile: File,
-    subtitlesText: string | null
+export async function translateSubtitles(
+  srtContent: string,
+  targetLanguage: string
 ): Promise<string> {
-    // Fix: Use API key from environment variable as per guidelines.
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  try {
+    const { ai, settings, apiKey } = await getAIConfig();
+    const modelName = settings.model;
 
-    const userParts: any[] = [];
-    // Only add video if it's the very first user message in the whole conversation
-    if (history.filter(h => h.role === 'user').length === 0) {
-        const videoBase64 = await fileToBase64(videoFile);
-        userParts.push({ inlineData: { mimeType: videoFile.type, data: videoBase64 } });
-    }
-    if (userMessage.imageB64DataUrl) {
-        const [meta, data] = userMessage.imageB64DataUrl.split(',');
-        const mimeType = meta.split(';')[0].split(':')[1];
-        userParts.push({ inlineData: { mimeType, data } });
-    }
-    userParts.push({ text: userMessage.text });
-
-    const contents = [...history, { role: 'user', parts: userParts }];
+    const prompt = `Translate the following SRT content to ${targetLanguage}. Preserve the SRT format perfectly, including timestamps and numbering. The final output must be only the translated SRT content, with no extra text, explanations, or code fences.\n\nSRT Content:\n${srtContent}`;
     
-    let systemInstruction = "You are a helpful AI assistant. You will be answering questions about a video. The user will provide the video in the first message.";
-    if (subtitlesText) {
-        systemInstruction += `\n\nUse the following transcript as the primary source of information for your answers, but verify with the video content if necessary:\n\nTRANSCRIPT:\n${subtitlesText}`;
+    const contents = { parts: [{ text: prompt }] };
+
+    if (settings.baseUrl) {
+        return generateContentWithCustomAPI(settings, apiKey, contents);
     }
     
     const response = await ai.models.generateContent({
-        model: MODEL_NAME,
-        contents,
-        config: { systemInstruction },
+      model: modelName,
+      contents,
     });
-    return response.text;
+
+    // Clean up potential markdown code fences from the response
+    const cleanedText = response.text.replace(/```srt\n|```/g, '').trim();
+    return cleanedText;
+  } catch (error) {
+    console.error('Error translating subtitles with AI:', error);
+     if (error instanceof Error) {
+        if (error.message.includes('API key not valid') || error.message.includes('API request failed')) {
+             throw new Error("The provided API Key or Base URL is invalid. Please check your settings.");
+        }
+        throw new Error(`An error occurred during subtitle translation: ${error.message}`);
+    }
+    throw new Error('An unknown error occurred during subtitle translation.');
+  }
+}
+
+export async function testConnection(settings: APISettings): Promise<{ success: boolean; message: string }> {
+    // For testing, we use the provided settings from the UI, but fallback to environment variables if a field is empty.
+    const apiKey = settings.apiKey || process.env.API_KEY;
+    const baseUrl = settings.baseUrl || process.env.BASE_URL;
+    const modelName = settings.model || process.env.MODEL || DEFAULT_MODEL;
+
+    if (!apiKey) {
+        return { success: false, message: 'API Key is missing from both settings and environment variables.' };
+    }
+
+    try {
+        if (baseUrl) {
+            const url = `${baseUrl.replace(/\/$/, '')}/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: "test" }] }],
+                    generationConfig: { maxOutputTokens: 1 }
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: { message: `Request failed with status ${response.status}` } }));
+                throw new Error(errorData.error?.message || `Request failed with status ${response.status}`);
+            }
+        } else {
+            const ai = new GoogleGenAI({ apiKey });
+            await ai.models.generateContent({
+                model: modelName,
+                contents: 'test',
+                config: { maxOutputTokens: 1 },
+            });
+        }
+        return { success: true, message: 'Connection successful!' };
+
+    } catch (error) {
+        let errorMessage = 'An unknown error occurred.';
+        if (error instanceof Error) {
+            errorMessage = error.message;
+             if (errorMessage.includes('API key not valid')) {
+                errorMessage = "The provided API Key is invalid.";
+            } else if (errorMessage.includes('fetch failed') || errorMessage.includes('Failed to fetch') || errorMessage.includes('CORS')) {
+                 errorMessage = "Could not connect to the Base URL. Check the URL, network, and CORS policy.";
+            } else if (errorMessage.includes('404')) {
+                errorMessage = "Model not found. Please check the Model Name and Base URL.";
+            }
+        }
+        return { success: false, message: errorMessage };
+    }
 }

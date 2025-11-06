@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Local Video Analyzer</title>
+    <title>InsightReel</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -20,6 +20,35 @@
         },
       }
     </script>
+    <style>
+      /* Custom scrollbar styles applied via .custom-scrollbar class */
+      /* For Webkit-based browsers (Chrome, Safari, etc.) */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background-color: transparent; /* Hidden by default */
+        border-radius: 10px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+      }
+      /* Show on hover of the container */
+      .custom-scrollbar:hover::-webkit-scrollbar-thumb {
+        background-color: rgba(100, 116, 139, 0.4); /* slate-500/40 */
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background-color: rgba(100, 116, 139, 0.6); /* slate-500/60 */
+      }
+      /* For Firefox */
+      .custom-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(100, 116, 139, 0.4) transparent; /* thumb and track color */
+      }
+    </style>
   <script type="importmap">
 {
   "imports": {

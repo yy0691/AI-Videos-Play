@@ -3,6 +3,8 @@ import { Video, Subtitles, ChatMessage } from '../types';
 import { generateChatResponse } from '../services/geminiService';
 import { Content } from '@google/genai';
 import MarkdownRenderer from './MarkdownRenderer';
+import { useLanguage } from '../contexts/LanguageContext';
+import { extractFramesFromVideo } from '../utils/helpers';
 
 interface ChatPanelProps {
   video: Video;
@@ -16,6 +18,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
   const [currentMessage, setCurrentMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const { t, language } = useLanguage();
 
   // Reset history when video changes
   useEffect(() => {
@@ -25,6 +29,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history, isLoading]);
+
+  useEffect(() => {
+    // Auto-resize textarea
+    if (textAreaRef.current) {
+        textAreaRef.current.style.height = 'auto';
+        textAreaRef.current.style.height = `${textAreaRef.current.scrollHeight}px`;
+    }
+  }, [currentMessage]);
   
   const handleSendMessage = async () => {
     if (!currentMessage.trim() || isLoading) return;
@@ -42,6 +54,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
     setIsLoading(true);
 
     try {
+        const isFirstMessage = history.filter(h => h.role === 'user').length === 0;
+        let frames: string[] | undefined = undefined;
+
+        if (isFirstMessage) {
+            const MAX_FRAMES_FOR_CHAT = 30; // Use fewer frames for chat for faster response
+            frames = await extractFramesFromVideo(video.file, MAX_FRAMES_FOR_CHAT, () => {}); // No progress reporting needed for chat
+        }
+
         // Convert previous ChatMessage[] to Content[] for the API
         const apiHistory: Content[] = history.map(msg => ({
             role: msg.role,
@@ -49,12 +69,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
         }));
         
         const subtitlesText = subtitles ? subtitles.segments.map(s => s.text).join(' ') : null;
+        const targetLanguageName = language === 'zh' ? 'Chinese' : 'English';
+        const systemInstruction = t('chatSystemInstruction', targetLanguageName);
 
         const responseText = await generateChatResponse(
             apiHistory,
             { text: userMessage.text, imageB64DataUrl: screenshotDataUrl || undefined },
-            video.file,
-            subtitlesText
+            { frames },
+            subtitlesText,
+            systemInstruction
         );
         
         const modelMessage: ChatMessage = { role: 'model', text: responseText };
@@ -72,10 +95,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
 
   return (
     <div className="flex flex-col h-full p-2">
-      <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+      <div className="flex-1 overflow-y-auto pr-2 space-y-4 p-4 custom-scrollbar">
         {history.map((msg, index) => (
           <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-xs md:max-w-md lg:max-w-lg rounded-2xl px-4 py-2 shadow-md ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'backdrop-blur-sm bg-white/60 text-slate-800'}`}>
+            <div className={`max-w-xs md:max-w-md lg:max-w-lg rounded-2xl px-4 py-2 shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'backdrop-blur-sm bg-slate-200/60 text-slate-800'}`}>
                 {msg.role === 'user' && msg.image && (
                     <img src={msg.image} alt="user screenshot" className="w-full rounded-md mb-2 max-h-48 object-contain bg-black/20"/>
                 )}
@@ -89,7 +112,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
         ))}
         {isLoading && (
             <div className="flex justify-start">
-                 <div className="max-w-xs rounded-2xl px-4 py-3 backdrop-blur-sm bg-white/60 text-slate-800">
+                 <div className="max-w-xs rounded-2xl px-4 py-3 backdrop-blur-sm bg-slate-200/60 text-slate-800">
                     <div className="flex items-center space-x-2">
                         <div className="w-2 h-2 bg-slate-500 rounded-full animate-pulse"></div>
                         <div className="w-2 h-2 bg-slate-500 rounded-full animate-pulse [animation-delay:0.2s]"></div>
@@ -100,10 +123,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
         )}
         <div ref={messagesEndRef} />
       </div>
-      <div className="mt-4">
+      <div className="mt-auto p-4 border-t border-gray-200">
         {screenshotDataUrl && (
-            <div className="p-1 border border-white/20 bg-white/50 rounded-lg mb-2 relative inline-block shadow-md">
-                <img src={screenshotDataUrl} alt="Screenshot to send" className="w-20 h-20 object-cover rounded"/>
+            <div className="p-1 border bg-white rounded-lg mb-2 relative inline-block shadow-md">
+                <img src={screenshotDataUrl} alt="Screenshot to send" className="w-16 h-16 object-cover rounded"/>
                 <button
                     onClick={onClearScreenshot}
                     className="absolute -top-2 -right-2 bg-slate-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-sm leading-none hover:bg-black"
@@ -113,20 +136,31 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
                 </button>
             </div>
         )}
-        <div className="flex items-center">
-            <input
-            type="text"
-            value={currentMessage}
-            onChange={(e) => setCurrentMessage(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder="Ask about the video..."
-            className="flex-1 backdrop-blur-sm bg-white/30 border-white/20 border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-            disabled={isLoading}
+        <div className="relative">
+            <textarea
+                ref={textAreaRef}
+                rows={1}
+                value={currentMessage}
+                onChange={(e) => setCurrentMessage(e.target.value)}
+                onKeyPress={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                    }
+                }}
+                placeholder={t('askQuestion')}
+                className="flex text-sm w-full border px-3 py-2 rounded-[20px] bg-neutral-100 border-[#ebecee] pr-11 resize-none max-h-40 focus:outline-none focus:ring-2 focus:ring-indigo-400 custom-scrollbar"
+                disabled={isLoading}
             />
-            <button onClick={handleSendMessage} disabled={isLoading || !currentMessage.trim()} className="ml-2 bg-slate-900 text-white rounded-lg p-2 disabled:bg-slate-400 disabled:cursor-not-allowed hover:bg-slate-900/90 transition-all shadow-md">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 transform rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
+            <button 
+                onClick={handleSendMessage} 
+                disabled={isLoading || !currentMessage.trim()} 
+                className="absolute right-2 bottom-2.5 h-7 w-7 rounded-full inline-flex items-center justify-center bg-slate-800 text-white disabled:bg-slate-400 hover:bg-slate-700 transition-colors"
+                aria-label={t('sendMessage')}
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
+                </svg>
             </button>
         </div>
       </div>

@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Video, Note } from '../types';
 import { noteDB } from '../services/dbService';
+import { downloadFile } from '../utils/helpers';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const useDebouncedCallback = (callback: (...args: any[]) => void, delay: number) => {
-  // Fix: Explicitly initialize useRef with undefined to fix "Expected 1 arguments, but got 0" error.
   const timeoutRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    // Cleanup timeout on component unmount
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -37,8 +37,8 @@ const NotesPanel: React.FC<NotesPanelProps> = ({ video, note }) => {
   const [content, setContent] = useState('');
   const [status, setStatus] = useState<'idle' | 'typing' | 'saving' | 'saved'>('idle');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const { t } = useLanguage();
 
-  // This effect runs only when the video ID changes, setting the initial content from props.
   useEffect(() => {
     setContent(note?.content || '');
     setLastSaved(note ? new Date(note.updatedAt) : null);
@@ -75,30 +75,46 @@ const NotesPanel: React.FC<NotesPanelProps> = ({ video, note }) => {
   const getStatusText = () => {
       switch (status) {
           case 'typing':
-              return 'Typing...';
+              return t('statusTyping');
           case 'saving':
-              return 'Saving...';
+              return t('statusSaving');
           case 'saved':
-              return `All changes saved.`;
+              return t('statusSaved');
           case 'idle':
-              return lastSaved ? `Last saved: ${lastSaved.toLocaleTimeString()}` : 'Ready to take notes.';
+              return lastSaved ? t('statusLastSaved', lastSaved.toLocaleTimeString()) : t('statusReady');
       }
+  };
+
+  const handleExport = () => {
+    const fileName = `${video.name.replace(/\.[^/.]+$/, "")}-notes.txt`;
+    downloadFile(content, fileName, 'text/plain');
   };
 
   return (
     <div className="flex flex-col h-full p-2">
-      <textarea
-        value={content}
-        onChange={handleChange}
-        placeholder="Write your notes here... Changes are saved automatically."
-        className="flex-1 w-full bg-white/40 rounded-lg p-3 text-sm border border-white/20 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition resize-none backdrop-blur-sm"
-        aria-label="Video notes"
-      />
-      <div className="mt-2 flex justify-end items-center">
+      <div className="flex-shrink-0 flex justify-between items-center mb-2">
         <p className="text-xs text-slate-500 italic">
           {getStatusText()}
         </p>
+         <button
+            onClick={handleExport}
+            disabled={!content}
+            className="text-xs backdrop-blur-sm bg-white/50 hover:bg-white/80 border border-white/20 text-slate-800 font-medium p-1.5 rounded-lg transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label={t('exportNotes')}
+            title={t('exportNotes')}
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+        </button>
       </div>
+      <textarea
+        value={content}
+        onChange={handleChange}
+        placeholder={t('notesPlaceholder')}
+        className="flex-1 w-full bg-white/40 rounded-lg p-3 text-sm border border-white/20 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition resize-none backdrop-blur-sm custom-scrollbar"
+        aria-label="Video notes"
+      />
     </div>
   );
 };

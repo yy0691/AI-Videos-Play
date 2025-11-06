@@ -14,8 +14,8 @@ const markdownStyles = `
   .markdown-content ol { list-style-type: decimal; }
   .markdown-content li { margin-bottom: 0.25rem; }
   .markdown-content strong { font-weight: 600; }
-  .markdown-content pre { background-color: #e5e7eb; padding: 0.75rem; border-radius: 0.375rem; overflow-x: auto; font-family: monospace; font-size: 0.875rem; }
-  .markdown-content code { font-family: monospace; background-color: #e5e7eb; padding: 0.125rem 0.25rem; border-radius: 0.25rem; }
+  .markdown-content pre { background-color: #f5f5f5; padding: 0.75rem; border-radius: 0.375rem; overflow-x: auto; font-family: monospace; font-size: 0.875rem; }
+  .markdown-content code { font-family: monospace; background-color: #f5f5f5; padding: 0.125rem 0.25rem; border-radius: 0.25rem; }
   .markdown-content pre code { background-color: transparent; padding: 0; }
   .markdown-content p { margin-bottom: 0.5rem; }
 `;

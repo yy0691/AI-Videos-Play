@@ -44,3 +44,14 @@ export interface Note {
   content: string;
   updatedAt: string;
 }
+
+export type APIProvider = 'gemini';
+
+export interface APISettings {
+  id: 'user-settings';
+  provider: APIProvider;
+  apiKey?: string;
+  baseUrl?: string;
+  model: string;
+  language?: 'en' | 'zh';
+}

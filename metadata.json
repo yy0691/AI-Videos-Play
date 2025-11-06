@@ -1,5 +1,5 @@
 {
-  "name": "Local Video Analyzer",
+  "name": "InsightReel",
   "description": "A privacy-first tool to import and analyze local video files using the power of Gemini. All processing and storage happens on your machine.",
   "requestFramePermissions": []
 }

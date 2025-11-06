@@ -1,9 +1,8 @@
 import { openDB, DBSchema } from 'idb';
-// Fix: Removed APIConfig from imports as it is no longer used.
-import { Video, Subtitles, Analysis, Note } from '../types';
+import { Video, Subtitles, Analysis, Note, APISettings } from '../types';
 
 const DB_NAME = 'LocalVideoAnalyzerDB';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 interface AppDB extends DBSchema {
   videos: {
@@ -23,10 +22,14 @@ interface AppDB extends DBSchema {
     key: string;
     value: Note;
   };
+  settings: {
+    key: string;
+    value: APISettings;
+  };
 }
 
 const dbPromise = openDB<AppDB>(DB_NAME, DB_VERSION, {
-  upgrade(db) {
+  upgrade(db, oldVersion) {
     if (!db.objectStoreNames.contains('videos')) {
       db.createObjectStore('videos', { keyPath: 'id' });
     }
@@ -40,7 +43,11 @@ const dbPromise = openDB<AppDB>(DB_NAME, DB_VERSION, {
      if (!db.objectStoreNames.contains('notes')) {
       db.createObjectStore('notes', { keyPath: 'id' });
     }
-    // Fix: Removed settings store to comply with API key guidelines.
+    if (oldVersion < 3) {
+      if (!db.objectStoreNames.contains('settings')) {
+        db.createObjectStore('settings', { keyPath: 'id' });
+      }
+    }
   },
 });
 
@@ -92,7 +99,14 @@ export const noteDB = {
   },
 };
 
-// Fix: Removed settingsDB to comply with API key guidelines.
+export const settingsDB = {
+  async get(id: 'user-settings' = 'user-settings') {
+    return (await dbPromise).get('settings', id);
+  },
+  async put(settings: APISettings) {
+    return (await dbPromise).put('settings', settings);
+  },
+};
 
 export const appDB = {
   async deleteVideo(videoId: string) {
@@ -111,3 +125,17 @@ export const appDB = {
     return tx.done;
   }
 };
+
+export async function getEffectiveSettings(): Promise<APISettings> {
+    const userSettings = await settingsDB.get('user-settings') || {};
+    const DEFAULT_MODEL = 'gemini-2.5-flash';
+    
+    return {
+        id: 'user-settings',
+        provider: 'gemini',
+        language: userSettings.language || (navigator.language.startsWith('zh') ? 'zh' : 'en'),
+        model: userSettings.model || process.env.MODEL || DEFAULT_MODEL,
+        baseUrl: userSettings.baseUrl !== undefined ? userSettings.baseUrl : process.env.BASE_URL,
+        apiKey: userSettings.apiKey !== undefined ? userSettings.apiKey : process.env.API_KEY,
+    };
+}
