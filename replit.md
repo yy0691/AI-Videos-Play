@@ -107,6 +107,14 @@ All video processing happens locally in the browser. Only the necessary data (fr
 None configured yet.
 
 ## Recent Changes
+- **2025-11-07**: Complete gradient background unification
+  - Fixed critical layout issue causing color break between main content and Footer
+  - Moved gradient background from <body> to React root container (App.tsx)
+  - Changed from h-screen to min-h-screen to allow natural page flow
+  - Removed overflow-y-auto from main element that was creating separate scroll context
+  - Result: seamless gradient from top to bottom, including Footer area
+  - Now entire application shares one continuous gradient background
+
 - **2025-11-07**: Welcome screen complete color unification
   - Achieved seamless gradient integration with ultra-transparent overlays
   - Upload area: reduced to bg-white/5 (from bg-white/30) for near-invisible blend
