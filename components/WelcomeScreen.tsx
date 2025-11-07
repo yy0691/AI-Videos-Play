@@ -82,8 +82,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onImportFiles, onImportFo
         >
           <div className={`relative border-2 rounded-2xl p-12 md:p-16 transition-all duration-300 ${
             isDragging 
-              ? 'border-slate-900 bg-slate-50' 
-              : 'border-slate-200 bg-white/60 backdrop-blur-sm hover:border-slate-300'
+              ? 'border-slate-900 bg-white/80' 
+              : 'border-slate-200 bg-white/50 hover:border-slate-300'
           }`}>
             {/* Upload Icon */}
             <div className="mb-6">
@@ -156,7 +156,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onImportFiles, onImportFo
         
         {/* Feature Box */}
         <div className="mt-12 text-left max-w-xl mx-auto">
-          <div className="flex items-start gap-3 p-5 rounded-xl bg-white/40 backdrop-blur-sm border border-slate-200/50">
+          <div className="flex items-start gap-3 p-5 rounded-xl bg-white/30 border border-slate-200/50">
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
               <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
