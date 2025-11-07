@@ -57,8 +57,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(data);
   } catch (error) {
     console.error('Proxy error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    console.error('Detailed error:', {
+      message: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      apiKey: API_KEY ? 'configured' : 'missing',
+      baseUrl: BASE_URL,
+      model: MODEL
+    });
     return res.status(500).json({ 
-      error: error instanceof Error ? error.message : 'Internal server error' 
+      error: `Proxy failed: ${errorMessage}. Please check server logs for details.`
     });
   }
 }

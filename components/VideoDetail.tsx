@@ -146,6 +146,15 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
   
   const handleGenerateSubtitles = async () => {
     if (!video) return;
+    
+    // Check file size (Gemini API has ~20MB limit for videos)
+    const maxSizeMB = 20;
+    const fileSizeMB = video.file.size / (1024 * 1024);
+    if (fileSizeMB > maxSizeMB) {
+      alert(`视频文件太大（${fileSizeMB.toFixed(1)}MB）。Gemini API 限制为 ${maxSizeMB}MB。请使用较小的视频文件。`);
+      return;
+    }
+    
     setIsGeneratingSubtitles(true);
     setShowGenerateOptions(false);
     try {
