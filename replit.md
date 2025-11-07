@@ -107,6 +107,14 @@ All video processing happens locally in the browser. Only the necessary data (fr
 None configured yet.
 
 ## Recent Changes
+- **2025-11-07**: Welcome screen redesign
+  - Completely refactored WelcomeScreen component with minimalist, premium design
+  - Increased white space and improved visual hierarchy
+  - Enhanced upload area with subtle hover and drag interactions
+  - Improved button design with primary/secondary distinction
+  - Removed debug panel code for cleaner production-ready UI
+  - Maintained full drag-and-drop and folder upload functionality
+
 - **2025-11-07**: Footer and scrollbar improvements
   - Added global Footer component with TLDW attribution, author info, and feedback form
   - Adjusted Footer styling to blend seamlessly with gradient background
