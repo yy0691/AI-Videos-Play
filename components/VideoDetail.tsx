@@ -278,9 +278,9 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
 
 
   return (
-    <div className="h-full p-5 grid grid-cols-1 lg:grid-cols-7 gap-5">
+    <div className="h-full p-5 grid grid-cols-1 lg:grid-cols-9 gap-5">
       {/* Left Column */}
-      <div className="lg:col-span-4 flex flex-col gap-5 lg:max-h-[calc(100vh-2.5rem)]">
+      <div className="lg:col-span-6 flex flex-col gap-5 lg:max-h-[calc(100vh-2.5rem)]">
         {/* Video Player Card */}
         <div className="bg-white/50 text-card-foreground flex flex-col rounded-3xl border border-white/30 overflow-hidden shadow-sm flex-shrink-0 lg:sticky lg:top-5">
             <div className="p-4 h-14 border-b border-slate-300/50 flex justify-between items-center">

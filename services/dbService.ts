@@ -130,16 +130,17 @@ export async function getEffectiveSettings(): Promise<APISettings> {
     const userSettings = await settingsDB.get('user-settings') || {};
     const DEFAULT_MODEL = 'gemini-2.5-flash';
     
-    // In environments like Vercel, environment variables are available on process.env.
-    // We assume this is available in the execution environment as per project requirements.
-    const env = (typeof process !== 'undefined' ? process.env : {}) as any;
+    // In browser environments like Vercel, Vite exposes env variables via import.meta.env
+    // The variables must be prefixed with VITE_ in your .env file or Vercel settings.
+    // FIX: Cast `import.meta` to `any` to access Vite environment variables without TypeScript errors.
+    const env = (import.meta as any).env || {};
 
     return {
         id: 'user-settings',
         provider: 'gemini',
         language: userSettings.language || (navigator.language.startsWith('zh') ? 'zh' : 'en'),
-        model: userSettings.model || env.MODEL || DEFAULT_MODEL,
-        baseUrl: userSettings.baseUrl || env.BASE_URL,
-        apiKey: userSettings.apiKey || env.API_KEY,
+        model: userSettings.model || env.VITE_MODEL || DEFAULT_MODEL,
+        baseUrl: userSettings.baseUrl || env.VITE_BASE_URL,
+        apiKey: userSettings.apiKey || env.VITE_API_KEY,
     };
 }

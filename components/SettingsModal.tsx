@@ -40,10 +40,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
     }
   };
   
-  const env = (typeof process !== 'undefined' ? process.env : {}) as any;
-  const modelPlaceholder = env.MODEL ? t('modelPlaceholderSystem', env.MODEL) : t('modelNamePlaceholder');
-  const baseUrlPlaceholder = env.BASE_URL ? t('baseUrlPlaceholderSystem', env.BASE_URL) : t('baseUrlPlaceholder');
-  const apiKeyPlaceholder = env.API_KEY ? t('apiKeyPlaceholderSystem') : t('apiKeyPlaceholder');
+  const env = (import.meta as any).env || {};
+  const modelPlaceholder = env.VITE_MODEL ? t('modelPlaceholderSystem', env.VITE_MODEL) : t('modelNamePlaceholder');
+  const baseUrlPlaceholder = env.VITE_BASE_URL ? t('baseUrlPlaceholderSystem', env.VITE_BASE_URL) : t('baseUrlPlaceholder');
+  const apiKeyPlaceholder = env.VITE_API_KEY ? t('apiKeyPlaceholderSystem') : t('apiKeyPlaceholder');
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
