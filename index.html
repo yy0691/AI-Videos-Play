@@ -53,32 +53,33 @@
       }
 
       /* Custom scrollbar class for specific elements that need visible scrollbars */
+      /* Using !important to ensure it overrides the global * selector */
       .custom-scrollbar::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 8px !important;
+        height: 8px !important;
       }
       .custom-scrollbar::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.03);
+        background: rgba(0, 0, 0, 0.03) !important;
         border-radius: 10px;
       }
       .custom-scrollbar::-webkit-scrollbar-thumb {
-        background-color: rgba(100, 116, 139, 0.25); /* Always visible with subtle color */
+        background-color: rgba(100, 116, 139, 0.3) !important; /* Always visible */
         border-radius: 10px;
         transition: background-color 0.3s ease;
       }
       .custom-scrollbar:hover::-webkit-scrollbar-thumb {
-        background-color: rgba(100, 116, 139, 0.4);
+        background-color: rgba(100, 116, 139, 0.45) !important;
       }
       .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background-color: rgba(100, 116, 139, 0.6);
+        background-color: rgba(100, 116, 139, 0.65) !important;
       }
       /* For Firefox */
       .custom-scrollbar {
-        scrollbar-width: thin;
-        scrollbar-color: rgba(100, 116, 139, 0.25) rgba(0, 0, 0, 0.03); /* Always visible */
+        scrollbar-width: thin !important;
+        scrollbar-color: rgba(100, 116, 139, 0.3) rgba(0, 0, 0, 0.03) !important; /* Always visible */
       }
       .custom-scrollbar:hover {
-        scrollbar-color: rgba(100, 116, 139, 0.4) rgba(0, 0, 0, 0.03);
+        scrollbar-color: rgba(100, 116, 139, 0.45) rgba(0, 0, 0, 0.03) !important;
       }
     </style>
   <script type="importmap">

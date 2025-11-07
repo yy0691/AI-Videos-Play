@@ -109,7 +109,10 @@ None configured yet.
 ## Recent Changes
 - **2025-11-07**: Footer and scrollbar improvements
   - Added global Footer component with TLDW attribution, author info, and feedback form
+  - Adjusted Footer styling to blend seamlessly with gradient background
   - Modified global scrollbar styles to only show color on hover/scroll
+  - Enhanced `.custom-scrollbar` class for sidebar and chat input with always-visible scrollbars
+  - Fixed chat input send button vertical centering issue
   - Fixed Vercel environment variable issue with explicit define in vite.config.ts
   - Created .env.example template for environment variables
   - Updated VERCEL_DEPLOYMENT.md with deployment troubleshooting
