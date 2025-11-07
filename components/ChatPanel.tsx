@@ -155,7 +155,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
             <button 
                 onClick={handleSendMessage} 
                 disabled={isLoading || !currentMessage.trim()} 
-                className="absolute right-2 bottom-2.5 h-7 w-7 rounded-full inline-flex items-center justify-center bg-slate-800 text-white disabled:bg-slate-400 hover:bg-slate-700 transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full inline-flex items-center justify-center bg-slate-800 text-white disabled:bg-slate-400 hover:bg-slate-700 transition-colors"
                 aria-label={t('sendMessage')}
             >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
