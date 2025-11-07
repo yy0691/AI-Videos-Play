@@ -82,13 +82,13 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onImportFiles, onImportFo
         >
           <div className={`relative border-2 rounded-2xl p-12 md:p-16 transition-all duration-300 ${
             isDragging 
-              ? 'border-slate-900 bg-white/80' 
-              : 'border-slate-200 bg-white/50 hover:border-slate-300'
+              ? 'border-slate-900 bg-white/70' 
+              : 'border-slate-200/60 bg-white/30 hover:border-slate-300/80'
           }`}>
             {/* Upload Icon */}
             <div className="mb-6">
               <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center transition-all duration-300 ${
-                isDragging ? 'bg-slate-900 scale-110' : 'bg-slate-100 group-hover:bg-slate-200'
+                isDragging ? 'bg-slate-900 scale-110' : 'bg-slate-900/5 group-hover:bg-slate-900/10'
               }`}>
                 <svg 
                   xmlns="http://www.w3.org/2000/svg" 
@@ -156,8 +156,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onImportFiles, onImportFo
         
         {/* Feature Box */}
         <div className="mt-12 text-left max-w-xl mx-auto">
-          <div className="flex items-start gap-3 p-5 rounded-xl bg-white/30 border border-slate-200/50">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+          <div className="flex items-start gap-3 p-5">
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-900/5 flex items-center justify-center">
               <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>

@@ -107,9 +107,17 @@ All video processing happens locally in the browser. Only the necessary data (fr
 None configured yet.
 
 ## Recent Changes
+- **2025-11-07**: Welcome screen color harmony improvements
+  - Adjusted all background opacities to blend seamlessly with gradient background
+  - Upload area: reduced opacity from bg-white/50 to bg-white/30
+  - Upload icon: changed from fixed bg-slate-100 to transparent bg-slate-900/5
+  - Feature card: removed background and border completely for natural integration
+  - Border opacity: reduced to border-slate-200/60 for softer appearance
+  - Result: completely unified color palette from top to bottom
+
 - **2025-11-07**: Welcome screen redesign
   - Completely refactored WelcomeScreen component with minimalist, premium design
-  - Changed global background from gradient to pure white for unified appearance
+  - Maintained gradient background (bg-gradient-to-br from-slate-50 to-slate-200)
   - Increased white space and improved visual hierarchy
   - Enhanced upload area with subtle hover and drag interactions
   - Improved button design with primary/secondary distinction
