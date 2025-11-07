@@ -5,9 +5,9 @@ const Footer: React.FC = () => {
   const { t } = useLanguage();
 
   return (
-    <footer className="w-full border-t border-slate-200 bg-white/70 backdrop-blur-sm py-4 px-6 mt-8">
+    <footer className="w-full py-4 px-6 mt-8">
       <div className="max-w-[1800px] mx-auto">
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-sm text-slate-600">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-sm text-slate-500">
           <div className="flex items-center gap-2">
             <span className="text-slate-500">{t('footerInspiredBy')}:</span>
             <a 
