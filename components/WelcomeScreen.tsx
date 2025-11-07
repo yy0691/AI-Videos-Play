@@ -80,15 +80,15 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onImportFiles, onImportFo
           onDragOver={handleDragOver}
           onDrop={handleDrop}
         >
-          <div className={`relative border-2 rounded-2xl p-12 md:p-16 transition-all duration-300 ${
+          <div className={`relative border rounded-2xl p-12 md:p-16 transition-all duration-300 ${
             isDragging 
-              ? 'border-slate-900 bg-white/70' 
-              : 'border-slate-200/60 bg-white/30 hover:border-slate-300/80'
+              ? 'border-slate-400/30 bg-white/10' 
+              : 'border-white/20 bg-white/5 hover:border-white/30'
           }`}>
             {/* Upload Icon */}
             <div className="mb-6">
               <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center transition-all duration-300 ${
-                isDragging ? 'bg-slate-900 scale-110' : 'bg-slate-900/5 group-hover:bg-slate-900/10'
+                isDragging ? 'bg-slate-900 scale-110' : 'bg-transparent group-hover:bg-slate-900/5'
               }`}>
                 <svg 
                   xmlns="http://www.w3.org/2000/svg" 
@@ -127,7 +127,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onImportFiles, onImportFo
               </button>
               <button
                 onClick={handleImportFolderClick}
-                className="w-full sm:w-auto bg-white text-slate-700 hover:bg-slate-50 px-6 py-3 rounded-lg text-sm font-medium transition-all duration-200 hover:scale-105 border border-slate-200 shadow-sm"
+                className="w-full sm:w-auto bg-slate-900/5 text-slate-700 hover:bg-slate-900/10 px-6 py-3 rounded-lg text-sm font-medium transition-all duration-200 hover:scale-105"
               >
                 {t('importFolder')}
               </button>
@@ -157,7 +157,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onImportFiles, onImportFo
         {/* Feature Box */}
         <div className="mt-12 text-left max-w-xl mx-auto">
           <div className="flex items-start gap-3 p-5">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-900/5 flex items-center justify-center">
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center">
               <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
