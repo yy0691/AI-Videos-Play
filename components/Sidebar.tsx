@@ -105,7 +105,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const controlButtonClasses = "relative group flex w-full items-center justify-center p-2.5 rounded-lg text-slate-600 hover:bg-slate-200/50 transition-colors";
 
   return (
-    <div className={`h-full flex flex-col backdrop-blur-sm bg-white/40 border border-slate-200/40 transition-all duration-300 ease-in-out ${sidebarWidthClass} rounded-2xl shadow-sm`}>
+    <div className={`h-full flex flex-col backdrop-blur-sm bg-white/90 border border-slate-200/40 transition-all duration-300 ease-in-out ${sidebarWidthClass} rounded-2xl shadow-sm`}>
       {/* Header */}
       <div className={`p-4 h-[65px] border-b border-slate-200/40 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
         <h1 className="text-xl font-bold text-slate-800 transition-opacity duration-200">

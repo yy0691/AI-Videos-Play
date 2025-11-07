@@ -107,6 +107,11 @@ All video processing happens locally in the browser. Only the necessary data (fr
 None configured yet.
 
 ## Recent Changes
+- **2025-11-07**: Mobile sidebar readability improvement
+  - Increased sidebar background opacity from bg-white/40 to bg-white/90
+  - Text is now much more readable on mobile devices
+  - Maintains backdrop blur for premium visual effect
+
 - **2025-11-07**: Complete gradient background unification
   - Fixed critical layout issue causing color break between main content and Footer
   - Moved gradient background from <body> to React root container (App.tsx)
