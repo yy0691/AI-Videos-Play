@@ -127,24 +127,27 @@ export const appDB = {
 };
 
 export async function getEffectiveSettings(): Promise<APISettings> {
-    const userSettings = await settingsDB.get('user-settings') || {};
+    const userSettings = (await settingsDB.get('user-settings')) as Partial<APISettings> | undefined;
     
-    // Fallback to environment variables if user settings are not present.
-    // User-saved settings always take priority.
-    // Fix: Cast `import.meta` to `any` to access `env` without Vite client types.
+    // Check if proxy is available (safe frontend signal)
     const env = (import.meta as any)?.env || {};
-    const systemApiKey = env.VITE_API_KEY;
+    const proxyAvailable = env.VITE_USE_PROXY === 'true';
     const systemBaseUrl = env.VITE_BASE_URL;
     const systemModel = env.VITE_MODEL;
     const DEFAULT_MODEL = 'gemini-2.5-flash';
 
+    const finalBaseUrl = userSettings?.baseUrl ?? systemBaseUrl;
+    const finalModel = userSettings?.model ?? systemModel ?? DEFAULT_MODEL;
+    
+    const useProxy = !userSettings?.apiKey && proxyAvailable;
+
     return {
         id: 'user-settings',
         provider: 'gemini',
-        language: userSettings.language || (navigator.language.startsWith('zh') ? 'zh' : 'en'),
-        // Use `??` to allow empty strings saved by the user to override env vars
-        model: userSettings.model ?? systemModel ?? DEFAULT_MODEL,
-        baseUrl: userSettings.baseUrl ?? systemBaseUrl,
-        apiKey: userSettings.apiKey ?? systemApiKey,
+        language: userSettings?.language || (navigator.language.startsWith('zh') ? 'zh' : 'en'),
+        model: finalModel,
+        baseUrl: finalBaseUrl,
+        apiKey: userSettings?.apiKey,
+        useProxy,
     };
 }

@@ -5,14 +5,56 @@ import { APISettings } from '../types';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 
-async function getAIConfig(): Promise<{ai: GoogleGenAI, settings: APISettings, apiKey: string}> {
+async function getAIConfig(): Promise<{ai: GoogleGenAI | null, settings: APISettings, apiKey: string}> {
     const settings = await getEffectiveSettings();
+    
+    if (settings.useProxy) {
+        return { ai: null, settings, apiKey: '' };
+    }
+    
     const apiKey = settings.apiKey;
     if (!apiKey) {
         throw new Error("API Key is not configured. Please set it in the settings or configure the system environment variable.");
     }
     const ai = new GoogleGenAI({ apiKey });
     return { ai, settings, apiKey };
+}
+
+async function generateContentViaProxy(
+    contents: any,
+    systemInstruction?: string,
+): Promise<string> {
+    const payload: any = {
+        contents: Array.isArray(contents) ? contents : [contents]
+    };
+
+    if (systemInstruction) {
+        payload.systemInstruction = systemInstruction;
+    }
+
+    const response = await fetch('/api/proxy', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Proxy request failed' }));
+        throw new Error(`Proxy request failed: ${errorData.error || response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    const text = data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '';
+    if (!text && data.candidates?.[0]?.finishReason) {
+        if (data.candidates[0].finishReason !== "STOP") {
+             throw new Error(`Model returned no content. Finish reason: ${data.candidates[0].finishReason}`);
+        }
+    }
+    
+    return text;
 }
 
 async function generateContentWithCustomAPI(
@@ -101,6 +143,10 @@ export async function analyzeVideo(params: {
       throw new Error("Either frames or subtitles must be provided for analysis.");
     }
     
+    if (settings.useProxy) {
+        return await generateContentViaProxy(contents);
+    }
+    
     if (settings.baseUrl) {
         return await generateContentWithCustomAPI(settings, apiKey, contents);
     }
@@ -172,6 +218,10 @@ export async function generateChatResponse(
         contents = [...history, newUserMessage];
     }
 
+    if (settings.useProxy) {
+        return await generateContentViaProxy(contents, systemInstruction);
+    }
+    
     if (settings.baseUrl) {
         return await generateContentWithCustomAPI(settings, apiKey, contents, systemInstruction);
     }
@@ -204,6 +254,10 @@ export async function generateSubtitles(videoFile: File, prompt: string): Promis
         text: prompt,
     };
     
+    if (settings.useProxy) {
+        return await generateContentViaProxy({ parts: [videoPart, textPart] });
+    }
+    
     if (settings.baseUrl) {
         return await generateContentWithCustomAPI(settings, apiKey, { parts: [videoPart, textPart] });
     }
@@ -225,6 +279,10 @@ export async function translateSubtitles(srtContent: string, targetLanguage: str
     const { ai, settings, apiKey } = await getAIConfig();
     const prompt = `Translate the following SRT content into ${targetLanguage}. Maintain the SRT format, including timestamps and numbering, perfectly. Only output the translated SRT content, with no extra explanations or markdown formatting.\n\n${srtContent}`;
 
+    if (settings.useProxy) {
+        return await generateContentViaProxy({ parts: [{ text: prompt }] });
+    }
+    
     if (settings.baseUrl) {
         return await generateContentWithCustomAPI(settings, apiKey, { parts: [{ text: prompt }] });
     }
@@ -238,18 +296,33 @@ export async function translateSubtitles(srtContent: string, targetLanguage: str
 }
 
 export async function testConnection(settings: APISettings): Promise<{success: boolean, message: string}> {
-    // Use settings passed directly from the UI for the test
-    const apiKey = settings.apiKey;
     const modelName = settings.model || DEFAULT_MODEL;
-    const baseUrl = settings.baseUrl;
-
-    if (!apiKey) {
-        return { success: false, message: "API Key is missing." };
-    }
 
     try {
+        if (settings.useProxy) {
+            const response = await fetch('/api/proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    contents: [{ parts: [{ text: "Hello" }] }] 
+                }),
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Proxy request failed' }));
+                throw new Error(errorData.error || `Request failed with status ${response.status}`);
+            }
+            return { success: true, message: "Successfully connected via proxy!" };
+        }
+
+        const apiKey = settings.apiKey;
+        const baseUrl = settings.baseUrl;
+
+        if (!apiKey) {
+            return { success: false, message: "API Key is missing." };
+        }
+
         if (baseUrl) {
-            // Test custom API endpoint
             const url = `${baseUrl.replace(/\/$/, '')}/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
             const response = await fetch(url, {
                 method: 'POST',
@@ -261,7 +334,6 @@ export async function testConnection(settings: APISettings): Promise<{success: b
                  throw new Error(errorData.error?.message || `Request failed with status ${response.status}`);
             }
         } else {
-            // Test official Google GenAI API
             const ai = new GoogleGenAI({ apiKey });
             await ai.models.generateContent({
                 model: modelName,

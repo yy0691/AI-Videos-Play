@@ -15,16 +15,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
   const { t } = useLanguage();
 
   // Check for build-time environment variables to determine UI behavior
-  // Fix: Cast `import.meta` to `any` to access `env` without Vite client types.
   const env = (import.meta as any)?.env || {};
   const systemModel = env.VITE_MODEL;
   const systemBaseUrl = env.VITE_BASE_URL;
-  const systemApiKey = env.VITE_API_KEY;
+  const proxyAvailable = env.VITE_USE_PROXY === 'true';
 
   // Determine if the currently displayed settings are from the system fallback
   const isModelSystemInUse = !!systemModel && currentSettings.model === systemModel;
   const isBaseUrlSystemInUse = !!systemBaseUrl && currentSettings.baseUrl === systemBaseUrl;
-  const isApiKeySystemInUse = !!systemApiKey && currentSettings.apiKey === systemApiKey;
+  const isUsingProxy = !currentSettings.apiKey && proxyAvailable;
 
   useEffect(() => {
     // We receive the "effective" settings. We don't want to show system values in the input fields.
@@ -35,13 +34,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
     if (!!systemBaseUrl && settings.baseUrl === systemBaseUrl) {
       displaySettings.baseUrl = '';
     }
-    if (!!systemApiKey && settings.apiKey === systemApiKey) {
-      displaySettings.apiKey = '';
-    }
 
     setCurrentSettings(displaySettings);
     setTestState({ status: 'idle', message: '' }); // Reset on open
-  }, [settings, systemApiKey, systemBaseUrl, systemModel]);
+  }, [settings, systemBaseUrl, systemModel]);
 
   const handleSettingChange = (update: Partial<APISettings>) => {
     setCurrentSettings(prev => ({ ...prev, ...update }));
@@ -58,12 +54,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
   
   const handleTest = async () => {
     setTestState({ status: 'testing', message: t('testingConnection') });
-    // For testing, we must use the effective settings, combining user input with system fallbacks
+    // For testing, we must use the effective settings
     const settingsToTest: APISettings = {
         ...currentSettings,
         model: currentSettings.model || systemModel || 'gemini-2.5-flash',
         baseUrl: currentSettings.baseUrl || systemBaseUrl,
-        apiKey: currentSettings.apiKey || systemApiKey,
+        apiKey: currentSettings.apiKey,
+        useProxy: !currentSettings.apiKey && proxyAvailable,
     }
     const result = await testConnection(settingsToTest);
     if (result.success) {
@@ -134,7 +131,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
               id="api-key"
               value={currentSettings.apiKey || ''}
               onChange={(e) => handleSettingChange({ apiKey: e.target.value })}
-              placeholder={systemApiKey ? t('apiKeyPlaceholderSystem') : t('apiKeyPlaceholder')}
+              placeholder={proxyAvailable ? t('apiKeyPlaceholderSystem') : t('apiKeyPlaceholder')}
               className="w-full backdrop-blur-sm bg-white/50 border-slate-300/80 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
             />
             <p className="text-xs text-slate-500 mt-1">{t('apiKeyHelpText')}</p>

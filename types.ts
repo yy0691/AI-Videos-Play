@@ -54,4 +54,5 @@ export interface APISettings {
   baseUrl?: string;
   model: string;
   language?: 'en' | 'zh';
+  useProxy?: boolean;
 }
