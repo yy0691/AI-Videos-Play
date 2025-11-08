@@ -350,19 +350,48 @@ export async function generateSubtitlesStreaming(
     }
 
     // Use streaming API
-    const stream = await ai.models.generateContentStream({
-        model: settings.model,
-        contents: { parts: [audioPart, textPart] }
-    });
-    
-    let fullText = '';
-    for await (const chunk of stream) {
-      const chunkText = chunk.text ?? '';
-      fullText += chunkText;
-      onStreamText?.(fullText);
+    try {
+      const stream = await ai.models.generateContentStream({
+          model: settings.model,
+          contents: { parts: [audioPart, textPart] }
+      });
+      
+      let fullText = '';
+      let chunkCount = 0;
+      for await (const chunk of stream) {
+        const chunkText = chunk.text ?? '';
+        fullText += chunkText;
+        chunkCount++;
+        onStreamText?.(fullText);
+      }
+      
+      console.log(`Received ${chunkCount} chunks, total length: ${fullText.length} characters`);
+      
+      // Clean up the response - remove markdown code blocks if present
+      let cleanedText = fullText.trim();
+      
+      // Remove markdown SRT code blocks
+      const srtMatch = cleanedText.match(/```srt\n([\s\S]*?)```/);
+      if (srtMatch && srtMatch[1]) {
+        console.log('Detected SRT in markdown code block, extracting...');
+        cleanedText = srtMatch[1].trim();
+      } else {
+        // Try to remove any code blocks
+        const codeBlockMatch = cleanedText.match(/```[\s\S]*?\n([\s\S]*?)```/);
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          console.log('Detected content in code block, extracting...');
+          cleanedText = codeBlockMatch[1].trim();
+        }
+      }
+      
+      console.log(`Final cleaned text length: ${cleanedText.length} characters`);
+      console.log(`First 200 chars: ${cleanedText.substring(0, 200)}`);
+      
+      return cleanedText;
+    } catch (error) {
+      console.error('Gemini API streaming error:', error);
+      throw new Error(`Failed to generate subtitles: ${error instanceof Error ? error.message : String(error)}`);
     }
-    
-    return fullText;
 }
 
 export async function generateSubtitles(

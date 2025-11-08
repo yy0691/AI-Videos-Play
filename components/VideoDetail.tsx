@@ -299,7 +299,11 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         
         const segments = parseSrt(srtContent);
         
+        console.log(`Parsed ${segments.length} subtitle segments from ${srtContent.length} characters`);
+        
         if (segments.length === 0) {
+            // Log the actual content for debugging
+            console.error('Failed to parse SRT. Content received:', srtContent.substring(0, 500));
             throw new Error("The model was unable to generate valid subtitles. The video might not contain clear speech, or the language was incorrect.");
         }
 
@@ -326,7 +330,20 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         setGenerationStatus({ active: true, stage: 'Complete!', progress: 100 });
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to generate subtitles.';
-        alert(`${errorMessage}\n\nPartial results may have been saved. Try reloading the page.`);
+        console.error('Subtitle generation error:', err);
+        
+        // Provide more helpful error message
+        let userMessage = errorMessage;
+        if (errorMessage.includes('unable to generate valid subtitles')) {
+          userMessage += '\n\nPossible causes:\n' +
+            '1. Video audio quality is too low\n' +
+            '2. Selected language does not match video language\n' +
+            '3. Video contains mostly music/noise instead of speech\n' +
+            '4. API quota exceeded or network issue\n\n' +
+            'Check browser console (F12) for detailed logs.';
+        }
+        
+        alert(`${userMessage}\n\nPartial results may have been saved. Try reloading the page.`);
     } finally {
         setIsGeneratingSubtitles(false);
         setStreamingSubtitles('');
