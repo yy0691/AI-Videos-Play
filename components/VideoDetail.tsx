@@ -5,6 +5,9 @@ import { subtitleDB, analysisDB } from '../services/dbService';
 import { generateSubtitles, generateSubtitlesStreaming, analyzeVideo, translateSubtitles } from '../services/geminiService';
 import { isWhisperAvailable, generateSubtitlesWithWhisper, whisperToSrt } from '../services/whisperService';
 import { retryWithBackoff, IncrementalSaver } from '../services/resilientService';
+import { generateVideoHash, getCachedSubtitles, cacheSubtitles, getCachedAnalysis, cacheAnalysis } from '../services/cacheService';
+import { taskQueue } from '../services/taskQueue';
+import { processVideoInSegments, estimateProcessingTime } from '../services/segmentedProcessor';
 import ChatPanel from './ChatPanel';
 import NotesPanel from './NotesPanel';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -49,15 +52,23 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
   const [generationStatus, setGenerationStatus] = useState({ active: false, stage: '', progress: 0 });
   const [streamingSubtitles, setStreamingSubtitles] = useState(''); // For real-time subtitle display
   const [whisperEnabled, setWhisperEnabled] = useState(false); // Check if Whisper is available
+  const [videoHash, setVideoHash] = useState<string>(''); // Video hash for caching
+  const [cacheHit, setCacheHit] = useState(false); // Whether cache was used
   const summaryAnalysis = analyses.find(a => a.type === 'summary');
   const topicsAnalysis = analyses.find(a => a.type === 'topics');
   const keyInfoAnalysis = analyses.find(a => a.type === 'key-info');
   const [activeTopic, setActiveTopic] = useState<string | null>(null);
   
-  // Check Whisper availability on mount
+  // Check Whisper availability and generate video hash on mount
   useEffect(() => {
     isWhisperAvailable().then(setWhisperEnabled);
-  }, []);
+    
+    // Generate video hash for caching
+    generateVideoHash(video.file).then(hash => {
+      setVideoHash(hash);
+      console.log('Video hash generated:', hash);
+    });
+  }, [video]);
   
   const TABS_MAP: Record<TabType, string> = useMemo(() => ({
     'Insights': t('insights'),
@@ -159,12 +170,39 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
     setIsGeneratingSubtitles(true);
     setShowGenerateOptions(false);
     setStreamingSubtitles('');
+    setCacheHit(false);
     
     // Use generation status to show progress
-    setGenerationStatus({ active: true, stage: 'Preparing...', progress: 0 });
+    setGenerationStatus({ active: true, stage: 'Checking cache...', progress: 0 });
     
     try {
         let srtContent: string;
+        
+        // Check cache first
+        if (videoHash) {
+          const cached = await getCachedSubtitles(videoHash);
+          if (cached) {
+            srtContent = cached;
+            setCacheHit(true);
+            setGenerationStatus({ active: true, stage: '✅ Loaded from cache!', progress: 100 });
+            
+            // Parse and save
+            const segments = parseSrt(srtContent);
+            const newSubtitles: Subtitles = {
+                id: video.id,
+                videoId: video.id,
+                segments,
+            };
+            await subtitleDB.put(newSubtitles);
+            onSubtitlesChange(video.id);
+            
+            setTimeout(() => {
+              setIsGeneratingSubtitles(false);
+              setGenerationStatus({ active: false, stage: '', progress: 0 });
+            }, 1500);
+            return;
+          }
+        }
         
         // Wrap the entire operation in retry logic
         srtContent = await retryWithBackoff(async () => {
@@ -254,6 +292,17 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         };
         await subtitleDB.put(newSubtitles);
         onSubtitlesChange(video.id);
+        
+        // Cache the result for future use
+        if (videoHash) {
+          await cacheSubtitles(
+            videoHash,
+            srtContent,
+            sourceLanguage,
+            video.file.size,
+            0 // Duration will be calculated if needed
+          );
+        }
         
         setGenerationStatus({ active: true, stage: 'Complete!', progress: 100 });
     } catch (err) {

@@ -5,10 +5,12 @@ import WelcomeScreen from './components/WelcomeScreen';
 import SettingsModal from './components/SettingsModal';
 import FeedbackModal from './components/FeedbackModal';
 import Footer from './components/Footer';
+import TaskQueuePanel from './components/TaskQueuePanel';
 import { Video, Subtitles, Analysis, Note, APISettings } from './types';
 import { videoDB, subtitleDB, analysisDB, noteDB, appDB, settingsDB, getEffectiveSettings } from './services/dbService';
 import { getVideoMetadata, parseSubtitleFile } from './utils/helpers';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
+import { clearOldCache } from './services/cacheService';
 
 const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettings: APISettings) => void }> = ({ settings, onSettingsChange }) => {
   const [videos, setVideos] = useState<Video[]>([]);
@@ -52,6 +54,20 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
 
   useEffect(() => {
     loadData();
+    
+    // Clear old cache on app load
+    clearOldCache().catch(err => {
+      console.error('Failed to clear old cache:', err);
+    });
+    
+    // Set up periodic cache cleanup (every 24 hours)
+    const cacheCleanupInterval = setInterval(() => {
+      clearOldCache().catch(err => {
+        console.error('Failed to clear old cache:', err);
+      });
+    }, 24 * 60 * 60 * 1000);
+    
+    return () => clearInterval(cacheCleanupInterval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -389,6 +405,9 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
           <Footer />
         </div>
       )}
+      
+      {/* Task Queue Panel - Floating task status indicator */}
+      <TaskQueuePanel />
     </div>
   );
 };

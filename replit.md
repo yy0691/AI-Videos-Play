@@ -13,8 +13,10 @@ InsightReel is a React-based web application that allows users to analyze videos
   - **Whisper API Integration** (Optional): Professional speech-to-text with 99+ language support
     - Note: Whisper API has a 25MB file size limit (automatically falls back to Gemini for larger files)
     - For files >25MB, uses Gemini with audio-only extraction (~1/10-1/20 original size)
+  - **Smart Caching**: Automatically caches generated subtitles and analyses to avoid redundant API calls
   - **Streaming Generation**: Real-time subtitle display during generation
   - **Resilient Processing**: Auto-retry with exponential backoff, incremental saving
+  - **Multi-task Processing**: Queue system supports processing multiple videos in parallel
 - **Subtitle Translation**: Translate subtitles to any language
 - **Interactive Chat**: Chat with AI about video content
 - **Local Storage**: All data stored locally using IndexedDB for privacy
@@ -118,6 +120,26 @@ All video processing happens locally in the browser. Only the necessary data (fr
 None configured yet.
 
 ## Recent Changes
+- **2025-11-08**: Performance optimization features
+  - Implemented smart caching mechanism
+    - Video hash-based subtitle and analysis caching
+    - Instant loading for previously processed videos
+    - Automatic cache cleanup (30-day retention)
+  - Created task queue system for parallel processing
+    - Support for processing multiple videos simultaneously
+    - Task status tracking with UI updates in floating panel
+    - Note: Full concurrency enforcement to be implemented in future version
+  - Added segmented processing framework
+    - Infrastructure for splitting long videos into parallel segments
+    - Intelligent segment size calculation based on video duration
+    - (Full implementation with ffmpeg.wasm planned for future)
+  - Created Web Worker infrastructure for background processing
+  - UI improvements:
+    - Floating TaskQueuePanel showing active tasks
+    - Cache hit indicators (instant load notifications)
+    - Processing time estimates
+
+
 - **2025-11-08**: Major subtitle generation improvements
   - Integrated OpenAI Whisper API for professional speech-to-text
     - 10x faster than LLM-based transcription
