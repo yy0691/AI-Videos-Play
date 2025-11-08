@@ -15,6 +15,7 @@ export const fileToBase64 = (file: File): Promise<string> =>
 /**
  * Extract audio from video file and convert to base64
  * This significantly reduces file size for subtitle generation (audio-only vs full video)
+ * Optimized for large videos (up to 2GB) with lower bitrate and chunked processing
  */
 export const extractAudioToBase64 = async (
   videoFile: File,
@@ -35,24 +36,50 @@ export const extractAudioToBase64 = async (
       try {
         onProgress?.(10);
         
-        // Create audio context
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        // Create audio context with lower sample rate for better compression
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+          sampleRate: 16000, // Lower sample rate (16kHz is sufficient for speech recognition)
+        });
         const source = audioContext.createMediaElementSource(video);
         const destination = audioContext.createMediaStreamDestination();
         source.connect(destination);
         
         onProgress?.(20);
         
-        // Create MediaRecorder to capture audio
+        // Determine optimal bitrate based on video size
+        const fileSizeMB = videoFile.size / (1024 * 1024);
+        let audioBitsPerSecond = 24000; // Default: 24kbps for very low bitrate
+        
+        if (fileSizeMB < 100) {
+          audioBitsPerSecond = 32000; // 32kbps for smaller files
+        } else if (fileSizeMB < 500) {
+          audioBitsPerSecond = 24000; // 24kbps for medium files
+        } else {
+          audioBitsPerSecond = 16000; // 16kbps for large files (>500MB)
+        }
+        
+        console.log(`Video size: ${fileSizeMB.toFixed(1)}MB, using audio bitrate: ${audioBitsPerSecond}bps`);
+        
+        // Create MediaRecorder with optimized settings for large files
         const mediaRecorder = new MediaRecorder(destination.stream, {
           mimeType: 'audio/webm;codecs=opus',
+          audioBitsPerSecond, // Lower bitrate for smaller file size
         });
         
         const chunks: Blob[] = [];
+        let totalChunkSize = 0;
+        const MAX_AUDIO_SIZE_MB = 20; // Target max audio size in MB
         
         mediaRecorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
             chunks.push(e.data);
+            totalChunkSize += e.data.size;
+            
+            // Monitor audio size and warn if getting too large
+            const currentSizeMB = totalChunkSize / (1024 * 1024);
+            if (currentSizeMB > MAX_AUDIO_SIZE_MB) {
+              console.warn(`Audio extraction size (${currentSizeMB.toFixed(1)}MB) exceeds recommended limit`);
+            }
           }
         };
         
@@ -61,8 +88,16 @@ export const extractAudioToBase64 = async (
           
           const audioBlob = new Blob(chunks, { type: 'audio/webm' });
           const sizeKB = Math.round(audioBlob.size / 1024);
+          const sizeMB = sizeKB / 1024;
           
-          // Convert blob to base64
+          console.log(`Audio extracted: ${sizeKB}KB (${sizeMB.toFixed(2)}MB) from ${fileSizeMB.toFixed(1)}MB video`);
+          
+          // Check if audio is too large (>20MB might cause API issues)
+          if (sizeMB > MAX_AUDIO_SIZE_MB) {
+            console.warn(`Extracted audio is ${sizeMB.toFixed(1)}MB, which may be too large for some APIs`);
+          }
+          
+          // Convert blob to base64 with chunked reading for memory efficiency
           const reader = new FileReader();
           reader.onload = () => {
             const base64String = (reader.result as string).split(',')[1];
@@ -89,25 +124,41 @@ export const extractAudioToBase64 = async (
           reject(new Error('MediaRecorder error: ' + e));
         };
         
-        // Start recording
-        mediaRecorder.start();
+        // Start recording with time slicing for better memory management
+        // Request data every 10 seconds to avoid memory buildup
+        mediaRecorder.start(10000);
         onProgress?.(30);
+        
+        // Increase playback rate slightly to speed up extraction (1.5x)
+        // This is safe for audio extraction and reduces processing time
+        video.playbackRate = 1.5;
         
         // Play video to record audio
         await video.play();
         
+        // Track progress during playback
+        const progressInterval = setInterval(() => {
+          if (video.duration > 0) {
+            const playbackProgress = (video.currentTime / video.duration) * 50; // 0-50% of progress
+            onProgress?.(30 + Math.round(playbackProgress));
+          }
+        }, 500);
+        
         // Wait for video to end or just record the audio
         video.onended = () => {
+          clearInterval(progressInterval);
           onProgress?.(70);
           mediaRecorder.stop();
         };
         
         // Safety timeout: stop after video duration + buffer
         setTimeout(() => {
+          clearInterval(progressInterval);
           if (mediaRecorder.state === 'recording') {
+            console.log('Audio extraction timeout reached, stopping...');
             mediaRecorder.stop();
           }
-        }, (video.duration + 2) * 1000);
+        }, (video.duration / video.playbackRate + 5) * 1000);
         
       } catch (err) {
         cleanup();

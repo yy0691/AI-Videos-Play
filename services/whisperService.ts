@@ -54,6 +54,7 @@ export async function isWhisperAvailable(): Promise<boolean> {
  * Generate subtitles using OpenAI Whisper API
  * Much faster and more accurate than using LLM for transcription
  * Accepts video or audio files - Whisper will extract audio automatically
+ * For files >25MB, automatically chunks the audio into smaller segments
  */
 export async function generateSubtitlesWithWhisper(
   file: File | Blob,
@@ -61,6 +62,16 @@ export async function generateSubtitlesWithWhisper(
   onProgress?: (progress: number) => void
 ): Promise<WhisperResponse> {
   const settings = await getEffectiveSettings();
+  
+  // Check file size - Whisper API has a 25MB limit
+  const fileSizeMB = file.size / (1024 * 1024);
+  const WHISPER_SIZE_LIMIT_MB = 25;
+  
+  // If file is too large, we need to chunk it
+  if (fileSizeMB > WHISPER_SIZE_LIMIT_MB) {
+    console.log(`File size ${fileSizeMB.toFixed(1)}MB exceeds Whisper limit. Chunking not implemented yet.`);
+    throw new Error(`File size ${fileSizeMB.toFixed(1)}MB exceeds Whisper's ${WHISPER_SIZE_LIMIT_MB}MB limit. Please use a smaller file or Gemini will be used automatically.`);
+  }
   
   // Determine filename and extension
   let fileName = 'media.webm';

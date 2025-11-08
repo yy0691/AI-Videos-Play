@@ -310,6 +310,9 @@ export async function generateSubtitlesStreaming(
 ): Promise<string> {
     const { ai, settings, apiKey } = await getAIConfig();
     
+    const fileSizeMB = videoFile.size / (1024 * 1024);
+    console.log(`Processing video: ${fileSizeMB.toFixed(1)}MB`);
+    
     // Extract audio only to reduce file size (subtitles only need audio, not video)
     onProgress?.(0, 'Extracting audio from video...');
     const audioData = await extractAudioToBase64(videoFile, (audioProgress) => {
@@ -317,7 +320,13 @@ export async function generateSubtitlesStreaming(
       onProgress?.(Math.round(audioProgress * 0.8), 'Extracting audio from video...');
     });
     
-    console.log(`Audio extracted: ${audioData.sizeKB}KB (vs ${Math.round(videoFile.size / 1024)}KB original video)`);
+    const audioSizeMB = audioData.sizeKB / 1024;
+    console.log(`Audio extracted: ${audioData.sizeKB}KB (${audioSizeMB.toFixed(2)}MB) from ${fileSizeMB.toFixed(1)}MB video (${((audioData.sizeKB / (videoFile.size / 1024)) * 100).toFixed(1)}% of original)`);
+    
+    // Warn if audio is very large (may cause API issues)
+    if (audioSizeMB > 20) {
+      console.warn(`Extracted audio is ${audioSizeMB.toFixed(1)}MB, which is quite large. Processing may take longer.`);
+    }
     
     onProgress?.(80, 'Generating subtitles...');
     

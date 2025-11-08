@@ -3,7 +3,6 @@ import { Video, Subtitles, Analysis, AnalysisType, Note } from '../types';
 import { parseSubtitleFile, formatTimestamp, parseSrt, segmentsToSrt, downloadFile, parseTimestampToSeconds, extractFramesFromVideo, extractAudioToBase64 } from '../utils/helpers';
 import { subtitleDB, analysisDB } from '../services/dbService';
 import { generateSubtitles, generateSubtitlesStreaming, analyzeVideo, translateSubtitles } from '../services/geminiService';
-import { isWhisperAvailable, generateSubtitlesWithWhisper, whisperToSrt } from '../services/whisperService';
 import { retryWithBackoff, IncrementalSaver } from '../services/resilientService';
 import { generateVideoHash, getCachedSubtitles, cacheSubtitles, getCachedAnalysis, cacheAnalysis } from '../services/cacheService';
 import { taskQueue } from '../services/taskQueue';
@@ -51,7 +50,6 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
   
   const [generationStatus, setGenerationStatus] = useState({ active: false, stage: '', progress: 0 });
   const [streamingSubtitles, setStreamingSubtitles] = useState(''); // For real-time subtitle display
-  const [whisperEnabled, setWhisperEnabled] = useState(false); // Check if Whisper is available
   const [videoHash, setVideoHash] = useState<string>(''); // Video hash for caching
   const [cacheHit, setCacheHit] = useState(false); // Whether cache was used
   const summaryAnalysis = analyses.find(a => a.type === 'summary');
@@ -59,10 +57,8 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
   const keyInfoAnalysis = analyses.find(a => a.type === 'key-info');
   const [activeTopic, setActiveTopic] = useState<string | null>(null);
   
-  // Check Whisper availability and generate video hash on mount
+  // Generate video hash on mount for caching
   useEffect(() => {
-    isWhisperAvailable().then(setWhisperEnabled);
-    
     // Generate video hash for caching
     generateVideoHash(video.file).then(hash => {
       setVideoHash(hash);
@@ -167,6 +163,17 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
   const handleGenerateSubtitles = async () => {
     if (!video) return;
     
+    // Validate file size (max 2GB)
+    const fileSizeGB = video.file.size / (1024 * 1024 * 1024);
+    const fileSizeMB = video.file.size / (1024 * 1024);
+    
+    if (fileSizeGB > 2) {
+      alert(`Video file is ${fileSizeGB.toFixed(2)}GB, which exceeds the 2GB limit for subtitle generation. Please use a smaller video file.`);
+      return;
+    }
+    
+    console.log(`Starting subtitle generation for ${fileSizeMB.toFixed(1)}MB video`);
+    
     setIsGeneratingSubtitles(true);
     setShowGenerateOptions(false);
     setStreamingSubtitles('');
@@ -206,65 +213,45 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         
         // Wrap the entire operation in retry logic
         srtContent = await retryWithBackoff(async () => {
-          // Try Whisper first if available (faster and more accurate)
-          if (whisperEnabled) {
-            // Check file size - Whisper API has a 25MB limit
-            const fileSizeMB = video.file.size / (1024 * 1024);
-            if (fileSizeMB > 25) {
-              console.warn(`Video file is ${fileSizeMB.toFixed(1)}MB, exceeding Whisper's 25MB limit. Falling back to Gemini.`);
-              throw new Error('File too large for Whisper API');
-            }
-            
-            setGenerationStatus({ active: true, stage: 'Uploading to Whisper API...', progress: 10 });
-            
-            // Use Whisper API - send video file directly (Whisper extracts audio)
-            // This eliminates the need for browser-side audio extraction
-            const whisperResult = await generateSubtitlesWithWhisper(
-              video.file,
-              sourceLanguage === 'Auto-Detect' ? undefined : sourceLanguage.toLowerCase().split(' ')[0],
-              (progress) => {
-                setGenerationStatus({ active: true, stage: 'Generating subtitles with Whisper...', progress: 10 + progress * 0.9 });
-              }
-            );
-            
-            const result = whisperToSrt(whisperResult);
-            console.log('Whisper API used for subtitle generation (video sent directly)');
-            return result;
-          } else {
-            // Fallback to Gemini with streaming
-            console.log('Using Gemini for subtitle generation (Whisper not available)');
-            
-            const targetLanguageName = language === 'zh' ? 'Chinese' : 'English';
-            const prompt = t('generateSubtitlesPrompt', sourceLanguage, targetLanguageName);
-            
-            return await generateSubtitlesStreaming(
-              video.file, 
-              prompt,
-              (progress, stage) => {
-                setGenerationStatus({ active: true, stage, progress });
-              },
-              (streamedText) => {
-                // Real-time streaming display
-                setStreamingSubtitles(streamedText);
-                
-                // Try to parse and save partial results incrementally
-                try {
-                  const partialSegments = parseSrt(streamedText);
-                  if (partialSegments.length > 0) {
-                    const partialSubtitles: Subtitles = {
-                      id: video.id,
-                      videoId: video.id,
-                      segments: partialSegments,
-                    };
-                    // Save partial results (fire-and-forget)
-                    subtitleDB.put(partialSubtitles).catch(() => {});
-                  }
-                } catch {
-                  // Ignore parse errors for partial content
-                }
-              }
-            );
+          // Use Gemini with streaming for subtitle generation
+          console.log(`Using Gemini for subtitle generation (video: ${fileSizeMB.toFixed(1)}MB)`);
+          
+          // For very large videos (>500MB), warn user about longer processing time
+          if (fileSizeMB > 500) {
+            console.warn(`Large video detected (${fileSizeMB.toFixed(1)}MB). Audio extraction may take several minutes.`);
+            setGenerationStatus({ active: true, stage: `Processing large video (${fileSizeMB.toFixed(0)}MB)...`, progress: 5 });
           }
+          
+          const targetLanguageName = language === 'zh' ? 'Chinese' : 'English';
+          const prompt = t('generateSubtitlesPrompt', sourceLanguage, targetLanguageName);
+          
+          return await generateSubtitlesStreaming(
+            video.file, 
+            prompt,
+            (progress, stage) => {
+              setGenerationStatus({ active: true, stage, progress });
+            },
+            (streamedText) => {
+              // Real-time streaming display
+              setStreamingSubtitles(streamedText);
+              
+              // Try to parse and save partial results incrementally
+              try {
+                const partialSegments = parseSrt(streamedText);
+                if (partialSegments.length > 0) {
+                  const partialSubtitles: Subtitles = {
+                    id: video.id,
+                    videoId: video.id,
+                    segments: partialSegments,
+                  };
+                  // Save partial results (fire-and-forget)
+                  subtitleDB.put(partialSubtitles).catch(() => {});
+                }
+              } catch {
+                // Ignore parse errors for partial content
+              }
+            }
+          );
         }, {
           maxRetries: 3,
           delayMs: 2000,
@@ -614,7 +601,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
                           </div>
                         )}
                         <p className="text-xs text-slate-500 mt-2">
-                          {whisperEnabled ? '✨ Using Whisper API for professional transcription' : t('subtitleGenerationWarning')}
+                          {t('subtitleGenerationWarning')}
                         </p>
                         {streamingSubtitles && (
                           <div className="mt-4 p-3 bg-white/50 rounded-lg border border-slate-200 text-left max-w-lg max-h-48 overflow-y-auto text-xs whitespace-pre-wrap">

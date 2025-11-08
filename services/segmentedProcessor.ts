@@ -4,7 +4,6 @@
  */
 
 import { generateSubtitles, generateSubtitlesStreaming } from './geminiService';
-import { generateSubtitlesWithWhisper, whisperToSrt } from './whisperService';
 import { parseSrt, segmentsToSrt } from '../utils/helpers';
 import { SubtitleSegment } from '../types';
 
@@ -101,7 +100,6 @@ function mergeSubtitleSegments(results: SegmentResult[]): SubtitleSegment[] {
 export async function processVideoInSegments(
   videoFile: File,
   language: string,
-  useWhisper: boolean,
   onProgress?: (progress: number, stage: string) => void,
   onSegmentComplete?: (segmentIndex: number, totalSegments: number) => void
 ): Promise<string> {
@@ -119,20 +117,13 @@ export async function processVideoInSegments(
   if (totalSegments === 1) {
     onProgress?.(10, 'Processing single segment...');
     
-    if (useWhisper) {
-      const result = await generateSubtitlesWithWhisper(videoFile, language, (p) => {
-        onProgress?.(10 + p * 0.9, 'Generating subtitles...');
-      });
-      return whisperToSrt(result);
-    } else {
-      // Use Gemini - will extract audio internally
-      const prompt = `Generate accurate SRT subtitles for this video. Language: ${language}`;
-      return await generateSubtitlesStreaming(
-        videoFile,
-        prompt,
-        (p, stage) => onProgress?.(10 + p * 0.9, stage)
-      );
-    }
+    // Use Gemini - will extract audio internally
+    const prompt = `Generate accurate SRT subtitles for this video. Language: ${language}`;
+    return await generateSubtitlesStreaming(
+      videoFile,
+      prompt,
+      (p, stage) => onProgress?.(10 + p * 0.9, stage)
+    );
   }
   
   // For multiple segments, we need to process each
@@ -146,19 +137,12 @@ export async function processVideoInSegments(
   console.warn('Video splitting not fully implemented yet. Processing as single segment.');
   onProgress?.(10, 'Processing video (segment splitting coming soon)...');
   
-  if (useWhisper) {
-    const result = await generateSubtitlesWithWhisper(videoFile, language, (p) => {
-      onProgress?.(10 + p * 0.9, 'Generating subtitles...');
-    });
-    return whisperToSrt(result);
-  } else {
-    const prompt = `Generate accurate SRT subtitles for this video. Language: ${language}`;
-    return await generateSubtitlesStreaming(
-      videoFile,
-      prompt,
-      (p, stage) => onProgress?.(10 + p * 0.9, stage)
-    );
-  }
+  const prompt = `Generate accurate SRT subtitles for this video. Language: ${language}`;
+  return await generateSubtitlesStreaming(
+    videoFile,
+    prompt,
+    (p, stage) => onProgress?.(10 + p * 0.9, stage)
+  );
 }
 
 /**
@@ -166,10 +150,9 @@ export async function processVideoInSegments(
  */
 export function estimateProcessingTime(
   durationSeconds: number,
-  useWhisper: boolean,
   useSegments: boolean
 ): number {
-  const baseTimePerSecond = useWhisper ? 0.1 : 0.5; // Whisper is ~5x faster
+  const baseTimePerSecond = 0.5; // Gemini processing time per second
   const parallelFactor = useSegments ? 0.4 : 1; // Parallel processing ~2.5x faster
   
   return Math.ceil(durationSeconds * baseTimePerSecond * parallelFactor);
