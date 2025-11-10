@@ -45,7 +45,7 @@ export interface Note {
   updatedAt: string;
 }
 
-export type APIProvider = 'gemini';
+export type APIProvider = 'gemini' | 'openai' | 'poe' | 'custom';
 
 export interface APISettings {
   id: 'user-settings';
@@ -57,4 +57,15 @@ export interface APISettings {
   useProxy?: boolean;
   openaiApiKey?: string; // For Whisper API (speech-to-text)
   useWhisper?: boolean; // Prefer Whisper for subtitle generation
+}
+
+// Provider-specific configuration
+export interface ProviderConfig {
+  name: string;
+  defaultBaseUrl: string;
+  defaultModel: string;
+  requiresProxy: boolean; // Whether CORS requires proxy
+  supportsStreaming: boolean;
+  supportsVision: boolean;
+  supportsAudio: boolean;
 }

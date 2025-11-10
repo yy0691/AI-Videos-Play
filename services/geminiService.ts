@@ -2,6 +2,7 @@ import { GoogleGenAI, Content } from '@google/genai';
 import { fileToBase64, extractAudioToBase64 } from '../utils/helpers';
 import { getEffectiveSettings } from './dbService';
 import { APISettings } from '../types';
+import { createAPIAdapter, PROVIDER_CONFIGS, APIRequest } from './apiProviders';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 
@@ -18,6 +19,51 @@ async function getAIConfig(): Promise<{ai: GoogleGenAI | null, settings: APISett
     }
     const ai = new GoogleGenAI({ apiKey });
     return { ai, settings, apiKey };
+}
+
+/**
+ * Universal API call using adapter pattern
+ */
+async function generateWithAdapter(
+  request: APIRequest,
+  streaming: boolean = false,
+  onChunk?: (text: string) => void
+): Promise<string> {
+  const settings = await getEffectiveSettings();
+  
+  // Use proxy if enabled
+  if (settings.useProxy) {
+    if (streaming && onChunk) {
+      return await generateContentStreamViaProxy({ parts: [{ text: request.prompt }] }, onChunk);
+    }
+    return await generateContentViaProxy({ parts: [{ text: request.prompt }] });
+  }
+  
+  const apiKey = settings.apiKey;
+  if (!apiKey) {
+    throw new Error("API Key is not configured.");
+  }
+  
+  const provider = settings.provider || 'gemini';
+  const config = PROVIDER_CONFIGS[provider];
+  
+  // Check if provider requires proxy for CORS
+  if (config.requiresProxy && !settings.useProxy) {
+    throw new Error(`${config.name} requires proxy mode to avoid CORS issues. Please enable proxy in settings.`);
+  }
+  
+  const baseUrl = settings.baseUrl || config.defaultBaseUrl;
+  const model = settings.model || config.defaultModel;
+  
+  const adapter = createAPIAdapter(provider, apiKey, baseUrl, model);
+  
+  if (streaming && onChunk) {
+    const response = await adapter.generateContentStream(request, onChunk);
+    return response.text;
+  } else {
+    const response = await adapter.generateContent(request);
+    return response.text;
+  }
 }
 
 async function generateContentViaProxy(

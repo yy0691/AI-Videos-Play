@@ -91,6 +91,51 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
               <option value="zh">中文</option>
             </select>
           </div>
+
+          <div>
+            <label htmlFor="provider-select" className="block text-sm font-medium text-slate-700 mb-1">
+              API Provider
+            </label>
+            <select
+              id="provider-select"
+              value={currentSettings.provider || 'gemini'}
+              onChange={(e) => handleSettingChange({ provider: e.target.value as any })}
+              className="w-full backdrop-blur-sm bg-white/50 border-slate-300/80 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
+            >
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI</option>
+              <option value="poe">Poe API</option>
+              <option value="custom">Custom API</option>
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              {currentSettings.provider === 'poe' && '⚠️ Poe requires proxy mode (enable below)'}
+              {currentSettings.provider === 'openai' && 'OpenAI GPT-4 and GPT-4o supported'}
+              {currentSettings.provider === 'gemini' && 'Google Gemini 2.5 Flash recommended'}
+            </p>
+          </div>
+
+          {currentSettings.provider === 'poe' && !currentSettings.useProxy && (
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+              <p className="text-sm text-amber-800">
+                ⚠️ Poe API requires proxy mode to avoid CORS issues. Please enable "Use Proxy" below.
+              </p>
+            </div>
+          )}
+
+          <div>
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={currentSettings.useProxy || false}
+                onChange={(e) => handleSettingChange({ useProxy: e.target.checked })}
+                className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+              />
+              <span className="text-sm font-medium text-slate-700">Use Proxy Mode</span>
+            </label>
+            <p className="text-xs text-slate-500 mt-1">
+              Enable this for APIs that require CORS proxy (like Poe) or to use server-side API keys
+            </p>
+          </div>
           
           <div>
             <label htmlFor="model-name" className="block text-sm font-medium text-slate-700 mb-1">

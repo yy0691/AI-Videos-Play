@@ -135,14 +135,15 @@ export async function getEffectiveSettings(): Promise<APISettings> {
     const systemModel = import.meta.env.VITE_MODEL;
     const DEFAULT_MODEL = 'gemini-2.5-flash';
 
+    const provider = userSettings?.provider || 'gemini';
     const finalBaseUrl = userSettings?.baseUrl ?? systemBaseUrl;
     const finalModel = userSettings?.model ?? systemModel ?? DEFAULT_MODEL;
     
-    const useProxy = !userSettings?.apiKey && proxyAvailable;
+    const useProxy = userSettings?.useProxy ?? (!userSettings?.apiKey && proxyAvailable);
 
     return {
         id: 'user-settings',
-        provider: 'gemini',
+        provider,
         language: userSettings?.language || (navigator.language.startsWith('zh') ? 'zh' : 'en'),
         model: finalModel,
         baseUrl: finalBaseUrl,
