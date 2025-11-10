@@ -37,11 +37,11 @@ export const extractAudioToBase64 = async (
         onProgress?.(10);
         
         const videoDurationMin = video.duration / 60;
-        const MAX_EXTRACT_DURATION_MIN = 30; // Maximum 30 minutes of audio to extract
+        const MAX_EXTRACT_DURATION_MIN = 10; // Maximum 10 minutes for proxy mode (avoid timeout)
         
         // For very long videos, warn user and limit extraction
         if (videoDurationMin > MAX_EXTRACT_DURATION_MIN) {
-          console.warn(`Video is ${videoDurationMin.toFixed(1)} minutes long. Will extract first ${MAX_EXTRACT_DURATION_MIN} minutes only to ensure reasonable processing time.`);
+          console.warn(`Video is ${videoDurationMin.toFixed(1)} minutes long. Will extract first ${MAX_EXTRACT_DURATION_MIN} minutes only to avoid proxy timeout.`);
         }
         
         // Create audio context with lower sample rate for better compression
@@ -54,16 +54,16 @@ export const extractAudioToBase64 = async (
         
         onProgress?.(20);
         
-        // Determine optimal bitrate based on video size
+        // Determine optimal bitrate based on video size (lower for proxy mode)
         const fileSizeMB = videoFile.size / (1024 * 1024);
-        let audioBitsPerSecond = 24000; // Default: 24kbps for very low bitrate
+        let audioBitsPerSecond = 12000; // Default: 12kbps for proxy mode
         
         if (fileSizeMB < 100) {
-          audioBitsPerSecond = 32000; // 32kbps for smaller files
+          audioBitsPerSecond = 16000; // 16kbps for smaller files
         } else if (fileSizeMB < 500) {
-          audioBitsPerSecond = 24000; // 24kbps for medium files
+          audioBitsPerSecond = 12000; // 12kbps for medium files
         } else {
-          audioBitsPerSecond = 16000; // 16kbps for large files (>500MB)
+          audioBitsPerSecond = 8000; // 8kbps for large files (>500MB)
         }
         
         console.log(`Video size: ${fileSizeMB.toFixed(1)}MB, using audio bitrate: ${audioBitsPerSecond}bps`);
@@ -76,7 +76,7 @@ export const extractAudioToBase64 = async (
         
         const chunks: Blob[] = [];
         let totalChunkSize = 0;
-        const MAX_AUDIO_SIZE_MB = 20; // Target max audio size in MB
+        const MAX_AUDIO_SIZE_MB = 5; // Target max audio size in MB for proxy mode
         let audioLimitReached = false;
         
         mediaRecorder.ondataavailable = (e) => {
@@ -176,14 +176,16 @@ export const extractAudioToBase64 = async (
         };
         
         // Calculate max extraction time
-        const MAX_EXTRACT_DURATION_SEC = 30 * 60; // 30 minutes max
-        const maxExtractionTime = Math.min(video.duration, MAX_EXTRACT_DURATION_SEC);
-        const actualExtractionTime = maxExtractionTime / playbackRate;
+        const MAX_EXTRACT_DURATION_SEC = 10 * 60; // 10 minutes of video content max for proxy mode
+        const maxVideoDuration = Math.min(video.duration, MAX_EXTRACT_DURATION_SEC);
+        const actualExtractionTime = maxVideoDuration / playbackRate; // Real-time needed to extract
+        
+        console.log(`Will extract ${(maxVideoDuration / 60).toFixed(1)}min of video content, taking ~${(actualExtractionTime / 60).toFixed(1)}min real-time at ${playbackRate}x speed`);
         
         // Timer to stop after max duration
         const maxDurationTimer = setTimeout(() => {
           if (mediaRecorder.state === 'recording') {
-            console.log(`Reached max extraction duration (${(maxExtractionTime / 60).toFixed(1)}min of video). Stopping...`);
+            console.log(`Reached max extraction duration (${(maxVideoDuration / 60).toFixed(1)}min of video). Stopping...`);
             clearInterval(progressInterval);
             video.pause();
             mediaRecorder.stop();

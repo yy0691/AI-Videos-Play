@@ -323,9 +323,15 @@ export async function generateSubtitlesStreaming(
     const audioSizeMB = audioData.sizeKB / 1024;
     console.log(`Audio extracted: ${audioData.sizeKB}KB (${audioSizeMB.toFixed(2)}MB) from ${fileSizeMB.toFixed(1)}MB video (${((audioData.sizeKB / (videoFile.size / 1024)) * 100).toFixed(1)}% of original)`);
     
-    // Warn if audio is very large (may cause API issues)
-    if (audioSizeMB > 20) {
-      console.warn(`Extracted audio is ${audioSizeMB.toFixed(1)}MB, which is quite large. Processing may take longer.`);
+    // Check if audio is too small (might indicate extraction failure)
+    if (audioSizeMB < 0.2) {
+      console.error(`Audio file is only ${audioSizeMB.toFixed(2)}MB, which is suspiciously small. This may indicate an extraction problem.`);
+      throw new Error(`Audio extraction failed: extracted audio is too small (${audioSizeMB.toFixed(2)}MB). The video might be corrupted or have no audio track.`);
+    }
+    
+    // Warn if audio is very large (may cause proxy timeout)
+    if (audioSizeMB > 5) {
+      console.warn(`Extracted audio is ${audioSizeMB.toFixed(1)}MB, which may cause proxy timeout. Consider using a shorter video segment.`);
     }
     
     onProgress?.(80, 'Generating subtitles...');

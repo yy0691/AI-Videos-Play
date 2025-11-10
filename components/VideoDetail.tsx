@@ -184,16 +184,16 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
       });
 
       const durationMin = metadata.duration / 60;
-      if (durationMin > 30) {
+      if (durationMin > 10) {
         const proceed = confirm(
           `This video is ${durationMin.toFixed(1)} minutes long.\n\n` +
-            `To ensure reasonable processing time, only the first 30 minutes will be used for subtitle generation.\n\n` +
-            `Estimated processing time: 8-12 minutes\n\n` +
-            `Continue?`
+          `To avoid proxy timeout, only the first 10 minutes will be used for subtitle generation.\n\n` +
+          `Estimated processing time: 3-5 minutes\n\n` +
+          `Continue?`
         );
         if (!proceed) return;
-      } else if (durationMin > 10) {
-        console.log(`Video duration: ${durationMin.toFixed(1)} minutes. Estimated processing time: ${(durationMin / 4).toFixed(1)}-${(durationMin / 3).toFixed(1)} minutes`);
+      } else if (durationMin > 5) {
+        console.log(`Video duration: ${durationMin.toFixed(1)} minutes. Estimated processing time: ${(durationMin / 3).toFixed(1)}-${(durationMin / 2).toFixed(1)} minutes`);
       }
     } catch (err) {
       console.warn('Could not get video duration:', err);

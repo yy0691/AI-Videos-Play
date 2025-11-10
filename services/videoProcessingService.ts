@@ -1,5 +1,5 @@
 import { Video, Analysis, AnalysisType, Subtitles, SubtitleSegment } from '../types';
-import { parseSrt, formatTimestamp, extractFramesFromVideo } from '../utils/helpers';
+import { parseSrt, formatTimestamp, extractFramesFromVideo, segmentsToSrt } from '../utils/helpers';
 import {
   cacheSubtitles,
   cacheSubtitleProgress,
@@ -24,6 +24,10 @@ import {
 import { analysisDB, getEffectiveSettings } from './dbService';
 import { analyzeVideoMetadata, VideoMetadataProfile } from './videoMetadataService';
 import { generateVisualTranscript } from './visualTranscriptService';
+import { 
+  processVideoInSegments, 
+  isSegmentedProcessingAvailable 
+} from './segmentedProcessor';
 
 interface StatusUpdate {
   stage: string;
@@ -379,6 +383,52 @@ export async function generateResilientSubtitles(
   }
 
   const settings = await getEffectiveSettings();
+
+  // Check if video is long and should use segmented processing
+  const VIDEO_DURATION_THRESHOLD = 180; // 3 minutes
+  const shouldUseSegmentedProcessing = video.duration > VIDEO_DURATION_THRESHOLD;
+  
+  if (shouldUseSegmentedProcessing) {
+    try {
+      const segmentedAvailable = await isSegmentedProcessingAvailable();
+      
+      if (segmentedAvailable) {
+        onStatus?.({ stage: 'Long video detected. Using segmented parallel processing...', progress: 15 });
+        
+        const segments = await processVideoInSegments({
+          video,
+          prompt: options.prompt,
+          sourceLanguage: options.sourceLanguage,
+          maxParallelTasks: 3, // Process 3 segments at a time
+          onProgress: (progress, stage) => onStatus?.({ stage, progress: 15 + progress * 0.8 }),
+          onSegmentComplete: (segmentIndex, totalSegments, segmentSubtitles) => {
+            console.log(`Completed segment ${segmentIndex + 1}/${totalSegments} with ${segmentSubtitles.length} subtitle entries`);
+          },
+          onPartialSubtitles: onPartialSubtitles,
+        });
+        
+        const srt = segmentsToSrt(segments);
+        
+        if (videoHash) {
+          await cacheSubtitles(
+            videoHash,
+            srt,
+            options.sourceLanguage,
+            video.file.size,
+            video.duration,
+            { provider: 'gemini', segmentCount: segments.length },
+          );
+        }
+        
+        return { segments, srt, fromCache: false, provider: 'gemini' };
+      } else {
+        console.log('Segmented processing not available (FFmpeg not loaded). Using standard processing.');
+      }
+    } catch (segmentedError) {
+      console.warn('Segmented processing failed, falling back to standard processing:', segmentedError);
+      onStatus?.({ stage: 'Segmented processing failed. Using standard method...', progress: 20 });
+    }
+  }
 
   let whisperAvailable = false;
   try {
