@@ -18,7 +18,6 @@ import {
   isWhisperAvailable,
   generateSubtitlesWithWhisper,
   whisperToSrt,
-  WHISPER_SIZE_LIMIT_MB,
 } from './whisperService';
 import { analysisDB, getEffectiveSettings } from './dbService';
 
@@ -163,9 +162,6 @@ export async function generateResilientSubtitles(
 ): Promise<SubtitleGenerationResult> {
   const { video, videoHash, onStatus } = options;
 
-  const fileSizeMB = video.file.size / (1024 * 1024);
-  const withinWhisperLimit = fileSizeMB <= WHISPER_SIZE_LIMIT_MB;
-
   onStatus?.({ stage: 'Checking cache...', progress: 5 });
   if (videoHash) {
     const cached = await getCachedSubtitles(videoHash);
@@ -187,46 +183,26 @@ export async function generateResilientSubtitles(
     whisperAvailable = false;
   }
 
-  if (settings.useWhisper && whisperAvailable && withinWhisperLimit) {
+  if (settings.useWhisper && whisperAvailable) {
     try {
       return await runWhisperSubtitleGeneration(options);
     } catch (error) {
       console.warn('Preferred Whisper generation failed, falling back to Gemini:', error);
     }
-  } else if (settings.useWhisper && whisperAvailable && !withinWhisperLimit) {
-    onStatus?.({
-      stage: 'Video is too large for Whisper. Using Gemini transcription instead...',
-      progress: 10,
-    });
   }
 
   try {
     return await runGeminiSubtitleGeneration(options);
   } catch (geminiError) {
-    console.error('Gemini subtitle generation failed:', geminiError);
-
-    if (!whisperAvailable || !withinWhisperLimit) {
-      const baseMessage =
-        geminiError instanceof Error ? geminiError.message : 'Subtitle generation failed.';
-      const guidance = !withinWhisperLimit
-        ? ' The video is too large for Whisper to process. Please configure a Gemini API key or enable the proxy in Settings to use the free transcription service.'
-        : '';
-
-      throw new Error(`${baseMessage}${guidance}`);
+    if (!whisperAvailable) {
+      throw geminiError instanceof Error
+        ? geminiError
+        : new Error('Subtitle generation failed.');
     }
 
     onStatus?.({ stage: 'Gemini failed. Switching to Whisper fallback...', progress: 60 });
-
-    try {
-      return await runWhisperSubtitleGeneration(options);
-    } catch (whisperError) {
-      throw whisperError instanceof Error
-        ? whisperError
-        : new Error('Subtitle generation failed.');
-    }
+    return await runWhisperSubtitleGeneration(options);
   }
-
-  throw new Error('Subtitle generation failed.');
 }
 
 interface InsightGenerationOptions {
