@@ -456,33 +456,6 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
               </div>
             )}
         </div>
-         {/* Subtitles Card */}
-        {subtitles && subtitles.segments.length > 0 && (
-            <div className="bg-white/50 rounded-3xl border border-white/30 shadow-sm flex flex-col flex-1 min-h-0 overflow-hidden">
-                <div className="p-4 border-b border-slate-300/50 flex-shrink-0">
-                    <h3 className="font-semibold">{t('subtitles')}</h3>
-                </div>
-                <div className="p-4 flex-1 overflow-y-auto custom-scrollbar">
-                    <ul className="space-y-2 text-sm pr-2">
-                        {subtitles.segments.map((seg, index) => {
-                            const isHighlighted = activeTopic ? seg.text.toLowerCase().includes(activeTopic.toLowerCase()) : false;
-                            const itemOpacity = activeTopic && !isHighlighted ? 'opacity-40' : 'opacity-100';
-
-                            return (
-                                <li
-                                    key={index}
-                                    className={`flex items-start cursor-pointer rounded-lg p-1.5 transition-all duration-300 ${itemOpacity} ${isHighlighted ? 'bg-amber-200/80' : 'hover:bg-slate-100/80'}`}
-                                    onClick={() => handleSeekTo(seg.start)}
-                                >
-                                    <span className="font-mono text-xs text-slate-500 mr-2">[{formatTimestamp(seg.start)}]</span>
-                                    <span className="flex-1">{seg.text}</span>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                </div>
-            </div>
-        )}
          {/* Key Moments Card */}
         {keyInfoAnalysis && (
             <div className="bg-white/50 rounded-3xl border border-white/30 shadow-sm flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -497,7 +470,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
                             const itemOpacity = activeTopic && !isHighlighted ? 'opacity-40' : 'opacity-100';
 
                             return (
-                                <li
+                                <li 
                                     key={index}
                                     className={`flex items-start cursor-pointer rounded-lg p-1.5 transition-all duration-300 ${itemOpacity} ${isHighlighted ? 'bg-amber-200/80' : 'hover:bg-slate-100/80'}`}
                                     onClick={() => handleSeekTo(info.timestamp)}
