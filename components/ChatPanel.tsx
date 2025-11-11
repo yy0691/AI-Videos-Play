@@ -132,18 +132,20 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
   };
 
   return (
-    <div className="flex flex-col flex-1 p-2">
-      <div className="flex-1 overflow-y-auto pr-2 space-y-4 p-4 custom-scrollbar max-h-[60vh]">
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto pr-2 space-y-4 p-4 custom-scrollbar">
         {history.map((msg, index) => (
           <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-xs md:max-w-md lg:max-w-lg rounded-2xl px-4 py-2 shadow-sm ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'backdrop-blur-sm bg-slate-200/60 text-slate-800'}`}>
                 {msg.role === 'user' && msg.image && (
                     <img src={msg.image} alt="user screenshot" className="w-full rounded-md mb-2 max-h-48 object-contain bg-black/20"/>
                 )}
-                <MarkdownRenderer
-                  content={msg.text}
-                  onTimestampClick={onSeekToTime}
-                />
+                <div className="text-sm">
+                  <MarkdownRenderer
+                    content={msg.text}
+                    onTimestampClick={onSeekToTime}
+                  />
+                </div>
             </div>
           </div>
         ))}
@@ -160,7 +162,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
         )}
         <div ref={messagesEndRef} />
       </div>
-      <div className="mt-auto p-4 border-t border-gray-200">
+      <div className="flex-shrink-0 p-4 border-t border-gray-200">
         {screenshotDataUrl && (
             <div className="p-1 border bg-white rounded-xl mb-2 relative inline-block shadow-md">
                 <img src={screenshotDataUrl} alt="Screenshot to send" className="w-16 h-16 object-cover rounded-md"/>
