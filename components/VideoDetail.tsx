@@ -25,9 +25,38 @@ interface VideoDetailProps {
 type TabType = 'Insights' | 'Transcript' | 'Chat' | 'Notes';
 
 const HEATMAP_COLORS = [
-    'bg-sky-400', 'bg-lime-400', 'bg-amber-400', 'bg-violet-400', 'bg-rose-400', 
+    'bg-sky-400', 'bg-lime-400', 'bg-amber-400', 'bg-violet-400', 'bg-rose-400',
     'bg-teal-400', 'bg-orange-400', 'bg-fuchsia-400'
 ];
+
+const MAX_SUBTITLE_DURATION_MIN = 10;
+
+const getProcessingEstimate = (durationMinutes: number) => {
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+    return { min: 0.5, max: 1 };
+  }
+
+  const minEstimate = Math.max(0.5, durationMinutes / 3);
+  const maxEstimate = Math.max(minEstimate + 0.5, durationMinutes / 2);
+
+  return { min: minEstimate, max: maxEstimate };
+};
+
+const formatProcessingEstimate = ({ min, max }: { min: number; max: number }) => {
+  const formatValue = (value: number) => {
+    if (value >= 3) {
+      return Math.round(value).toString();
+    }
+
+    if (value >= 1) {
+      return value.toFixed(1);
+    }
+
+    return value.toFixed(2);
+  };
+
+  return `${formatValue(min)}-${formatValue(max)} minutes`;
+};
 
 const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, note, onAnalysesChange, onSubtitlesChange, onDeleteVideo, onFirstInsightGenerated }) => {
   const [videoUrl, setVideoUrl] = useState('');
@@ -184,16 +213,21 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
       });
 
       const durationMin = metadata.duration / 60;
-      if (durationMin > 10) {
+      const truncatedDuration = Math.min(durationMin, MAX_SUBTITLE_DURATION_MIN);
+      const estimateText = formatProcessingEstimate(getProcessingEstimate(truncatedDuration));
+
+      if (durationMin > MAX_SUBTITLE_DURATION_MIN) {
         const proceed = confirm(
           `This video is ${durationMin.toFixed(1)} minutes long.\n\n` +
-          `To avoid proxy timeout, only the first 10 minutes will be used for subtitle generation.\n\n` +
-          `Estimated processing time: 3-5 minutes\n\n` +
+          `To avoid proxy timeout, only the first ${MAX_SUBTITLE_DURATION_MIN} minutes will be used for subtitle generation.\n\n` +
+          `Estimated processing time: ${estimateText}.\n\n` +
           `Continue?`
         );
         if (!proceed) return;
-      } else if (durationMin > 5) {
-        console.log(`Video duration: ${durationMin.toFixed(1)} minutes. Estimated processing time: ${(durationMin / 3).toFixed(1)}-${(durationMin / 2).toFixed(1)} minutes`);
+      } else {
+        console.log(
+          `Video duration: ${durationMin.toFixed(1)} minutes. Estimated processing time: ${estimateText}.`
+        );
       }
     } catch (err) {
       console.warn('Could not get video duration:', err);
