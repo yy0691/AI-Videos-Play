@@ -371,16 +371,6 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
           {/* Main Content Area */}
           <main className={`flex-1 overflow-y-auto transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'lg:pl-[5.25rem]' : 'lg:pl-[17.25rem]'}`}>
             <div className="w-full max-w-[1800px] mx-auto px-4 lg:px-8 xl:px-12 min-h-full flex flex-col">
-            {isMobile && (
-              <div className="flex-shrink-0 p-2 h-14 border-b border-slate-300/50 flex items-center bg-white/50 backdrop-blur-sm sticky top-0 z-20">
-                <button onClick={() => setIsMobileSidebarOpen(true)} className="p-2 rounded-full hover:bg-slate-900/10" aria-label="Open menu">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
-                </button>
-                <h1 className="text-lg font-semibold text-slate-800 ml-2 truncate">{t('appName')}</h1>
-              </div>
-            )}
               <div className="flex-1">
                 <VideoDetail
                   video={selectedVideo}
@@ -396,6 +386,19 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
               <Footer />
             </div>
           </main>
+
+          {/* Mobile Floating Menu Button */}
+          {isMobile && (
+            <button
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="fixed bottom-6 left-6 z-30 w-14 h-14 rounded-full bg-slate-900 text-white shadow-lg hover:bg-slate-800 active:scale-95 transition-all duration-200 flex items-center justify-center"
+              aria-label="Open menu"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          )}
         </>
       ) : (
         <div className="flex-1 flex flex-col min-h-full">
