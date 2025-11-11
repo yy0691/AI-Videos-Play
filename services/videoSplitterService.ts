@@ -82,7 +82,7 @@ async function createBlobUrlFromSource(
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch ${url} - ${response.status} ${response.statusText}`);
+      throw new Error(`HTTP ${response.status}: ${url}`);
     }
 
     const arrayBuffer = await response.arrayBuffer();
@@ -93,7 +93,11 @@ async function createBlobUrlFromSource(
     return objectUrl;
   } catch (error) {
     if ((error as DOMException)?.name === 'AbortError') {
-      throw new Error(`Fetch timed out after ${timeoutMs}ms: ${url}`);
+      throw new Error(`Timeout after ${timeoutMs}ms`);
+    }
+
+    if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      throw new Error('CORS blocked');
     }
 
     throw error;
@@ -351,8 +355,7 @@ export async function isFFmpegAvailable(): Promise<boolean> {
     console.log('[FFmpeg] Successfully loaded and ready');
     return true;
   } catch (error) {
-    console.error('[FFmpeg] Not available:', error);
-    console.log('[FFmpeg] Falling back to standard processing (10-minute limit)');
+    console.warn('[FFmpeg] Not available (this is OK - Deepgram will be used instead):', error instanceof Error ? error.message : error);
     return false;
   } finally {
     // Ensure we clear timeout when the promise settles

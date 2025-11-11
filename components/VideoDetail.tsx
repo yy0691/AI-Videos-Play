@@ -6,6 +6,7 @@ import { translateSubtitles } from '../services/geminiService';
 import { generateVideoHash } from '../services/cacheService';
 import { generateResilientSubtitles, generateResilientInsights } from '../services/videoProcessingService';
 import { isSegmentedProcessingAvailable } from '../services/segmentedProcessor';
+import { isDeepgramAvailable } from '../services/deepgramService';
 
 import ChatPanel from './ChatPanel';
 import NotesPanel from './NotesPanel';
@@ -213,15 +214,28 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
 
     // Get video duration for better user feedback
     try {
-      // Re-check segmented availability in case FFmpeg finished loading now
-      let segAvail = segmentedAvailable;
+      // Check if we can handle full video (Deepgram or FFmpeg segmentation)
+      let canHandleFullVideo = segmentedAvailable;
       try {
-        if (!segAvail) {
+        if (!canHandleFullVideo) {
           setGenerationStatus({ active: true, stage: 'Checking video processing capabilities...', progress: 2 });
-          segAvail = await isSegmentedProcessingAvailable();
-          if (segAvail !== segmentedAvailable) setSegmentedAvailable(segAvail);
+
+          // Check Deepgram first (no FFmpeg needed)
+          const deepgramReady = await isDeepgramAvailable();
+          if (deepgramReady) {
+            canHandleFullVideo = true;
+            console.log('[VideoDetail] Deepgram is available - can process full video');
+          } else {
+            // Fall back to FFmpeg segmentation check
+            const segAvail = await isSegmentedProcessingAvailable();
+            if (segAvail !== segmentedAvailable) setSegmentedAvailable(segAvail);
+            canHandleFullVideo = segAvail;
+          }
         }
-      } catch {}
+      } catch (err) {
+        console.warn('Error checking video processing capabilities:', err);
+      }
+
       const metadata = await new Promise<{ duration: number }>((resolve, reject) => {
         const v = document.createElement('video');
         v.preload = 'metadata';
@@ -237,10 +251,10 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
       });
 
       const durationMin = metadata.duration / 60;
-      const truncatedDuration = segAvail ? durationMin : Math.min(durationMin, MAX_SUBTITLE_DURATION_MIN);
+      const truncatedDuration = canHandleFullVideo ? durationMin : Math.min(durationMin, MAX_SUBTITLE_DURATION_MIN);
       const estimateText = formatProcessingEstimate(getProcessingEstimate(truncatedDuration));
 
-      if (!segAvail && durationMin > MAX_SUBTITLE_DURATION_MIN) {
+      if (!canHandleFullVideo && durationMin > MAX_SUBTITLE_DURATION_MIN) {
         const proceed = confirm(
           `This video is ${durationMin.toFixed(1)} minutes long.\n\n` +
           `To avoid proxy timeout, only the first ${MAX_SUBTITLE_DURATION_MIN} minutes will be used for subtitle generation.\n\n` +
