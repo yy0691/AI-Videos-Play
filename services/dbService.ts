@@ -151,7 +151,6 @@ export async function getEffectiveSettings(): Promise<APISettings> {
         useProxy,
         openaiApiKey: userSettings?.openaiApiKey,
         useWhisper: userSettings?.useWhisper,
-        groqApiKey: userSettings?.groqApiKey,
         deepgramApiKey: userSettings?.deepgramApiKey,
     };
 }

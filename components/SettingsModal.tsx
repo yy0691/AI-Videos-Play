@@ -186,25 +186,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
             <div className="space-y-3">
               <div>
-                <label htmlFor="groq-api-key" className="block text-sm font-medium text-slate-700 mb-1">
-                  Groq API Key (Recommended)
-                </label>
-                <input
-                  type="password"
-                  id="groq-api-key"
-                  value={currentSettings.groqApiKey || ''}
-                  onChange={(e) => handleSettingChange({ groqApiKey: e.target.value })}
-                  placeholder="gsk_..."
-                  className="w-full backdrop-blur-sm bg-white/50 border-slate-300/80 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                />
-                <p className="text-xs text-slate-500 mt-1">
-                  Ultra-fast Whisper inference. Free tier: 14,400 requests/day. Get key at <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">console.groq.com</a>
-                </p>
-              </div>
-
-              <div>
                 <label htmlFor="deepgram-api-key" className="block text-sm font-medium text-slate-700 mb-1">
-                  Deepgram API Key
+                  Deepgram API Key (Recommended)
                 </label>
                 <input
                   type="password"
@@ -215,7 +198,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
                   className="w-full backdrop-blur-sm bg-white/50 border-slate-300/80 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  High-quality transcription. $200 free credits (775 hours). Get key at <a href="https://console.deepgram.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">console.deepgram.com</a>
+                  Professional transcription with $200 free credits (775 hours). Get key at <a href="https://console.deepgram.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">console.deepgram.com</a>
                 </p>
               </div>
 
@@ -239,7 +222,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
 
             <div className="mt-3 p-3 rounded-lg bg-blue-50 border border-blue-200">
               <p className="text-xs text-blue-800">
-                <strong>Smart Routing:</strong> The system will automatically choose the best available service: Groq (fastest) → Deepgram (high quality) → Chunked processing → Gemini (fallback)
+                <strong>Smart Routing:</strong> The system will automatically choose: Deepgram (if available) → Chunked processing → Gemini (fallback)
               </p>
             </div>
           </div>

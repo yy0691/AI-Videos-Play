@@ -57,8 +57,7 @@ export interface APISettings {
   useProxy?: boolean;
   openaiApiKey?: string; // For Whisper API (speech-to-text)
   useWhisper?: boolean; // Prefer Whisper for subtitle generation
-  groqApiKey?: string; // For Groq Whisper (ultra-fast, free)
-  deepgramApiKey?: string; // For Deepgram (generous free tier)
+  deepgramApiKey?: string; // For Deepgram ($200 free credits)
 }
 
 // Provider-specific configuration

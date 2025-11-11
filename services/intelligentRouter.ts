@@ -1,13 +1,12 @@
 /**
  * Intelligent Speech-to-Text Router
  * Automatically selects the best available service with smart fallback chain:
- * 1. Groq Whisper (fastest, free, 25MB limit)
- * 2. Deepgram (generous free tier, high quality)
- * 3. Chunked processing with Groq/Deepgram
+ * 1. Deepgram (generous $200 free tier, high quality)
+ * 2. Chunked processing with Deepgram
+ * 3. Gemini direct processing
  * 4. Gemini segmented processing (ultimate fallback)
  */
 
-import { isGroqAvailable, generateSubtitlesWithGroq, groqToSrt, GROQ_SIZE_LIMIT_MB } from './groqService';
 import { isDeepgramAvailable, generateSubtitlesWithDeepgram, deepgramToSrt } from './deepgramService';
 import { generateSubtitlesStreaming } from './geminiService';
 import { processVideoInSegments } from './segmentedProcessor';
@@ -16,7 +15,7 @@ import { Video, SubtitleSegment } from '../types';
 
 export interface RouterResult {
   srtContent: string;
-  usedService: 'groq' | 'deepgram' | 'groq-chunked' | 'deepgram-chunked' | 'gemini' | 'gemini-segmented';
+  usedService: 'deepgram' | 'deepgram-chunked' | 'gemini' | 'gemini-segmented';
   processingTimeMs: number;
 }
 
@@ -42,38 +41,13 @@ export async function generateSubtitlesIntelligent(
   console.log(`[Router] Starting intelligent routing for ${fileSizeMB.toFixed(1)}MB file`);
 
   // Check which services are available
-  const groqAvailable = await isGroqAvailable();
   const deepgramAvailable = await isDeepgramAvailable();
 
   console.log('[Router] Available services:', {
-    groq: groqAvailable,
     deepgram: deepgramAvailable,
   });
 
-  // Strategy 1: Try Groq for files under 25MB (fastest)
-  if (groqAvailable && fileSizeMB <= GROQ_SIZE_LIMIT_MB) {
-    try {
-      console.log('[Router] Attempting Groq Whisper (fastest option)...');
-      onProgress?.(0, 'Using Groq Whisper (fastest)...');
-
-      const result = await generateSubtitlesWithGroq(file, language, onProgress);
-      const srtContent = groqToSrt(result);
-
-      const processingTimeMs = Date.now() - startTime;
-      console.log(`[Router] ✅ Groq succeeded in ${(processingTimeMs / 1000).toFixed(1)}s`);
-
-      return {
-        srtContent,
-        usedService: 'groq',
-        processingTimeMs,
-      };
-    } catch (error) {
-      console.warn('[Router] Groq failed:', error);
-      // Continue to next strategy
-    }
-  }
-
-  // Strategy 2: Try Deepgram for files under reasonable size
+  // Strategy 1: Try Deepgram for files under reasonable size
   if (deepgramAvailable && fileSizeMB <= 100) {
     try {
       console.log('[Router] Attempting Deepgram (high quality)...');
@@ -96,8 +70,8 @@ export async function generateSubtitlesIntelligent(
     }
   }
 
-  // Strategy 3: For files over 25MB, try chunked processing
-  if (fileSizeMB > GROQ_SIZE_LIMIT_MB && video && (groqAvailable || deepgramAvailable)) {
+  // Strategy 2: For large files, try chunked processing with Deepgram
+  if (fileSizeMB > 100 && video && deepgramAvailable) {
     try {
       console.log('[Router] File too large for direct processing, attempting chunked approach...');
       onProgress?.(0, 'Splitting and processing in chunks...');
@@ -106,12 +80,12 @@ export async function generateSubtitlesIntelligent(
         file,
         video,
         language,
-        groqAvailable ? 'groq' : 'deepgram',
+        'deepgram',
         onProgress
       );
 
       const processingTimeMs = Date.now() - startTime;
-      const service = groqAvailable ? 'groq-chunked' : 'deepgram-chunked';
+      const service = 'deepgram-chunked';
       console.log(`[Router] ✅ Chunked processing (${service}) succeeded in ${(processingTimeMs / 1000).toFixed(1)}s`);
 
       return {
@@ -125,7 +99,7 @@ export async function generateSubtitlesIntelligent(
     }
   }
 
-  // Strategy 4: Fallback to Gemini (single file)
+  // Strategy 3: Fallback to Gemini (single file)
   if (!video || fileSizeMB <= 50) {
     try {
       console.log('[Router] Falling back to Gemini direct processing...');
@@ -151,7 +125,7 @@ export async function generateSubtitlesIntelligent(
     }
   }
 
-  // Strategy 5: Ultimate fallback - Gemini segmented processing
+  // Strategy 4: Ultimate fallback - Gemini segmented processing
   if (video) {
     try {
       console.log('[Router] Using ultimate fallback: Gemini segmented processing...');
@@ -196,12 +170,12 @@ async function processFileInChunks(
   file: File | Blob,
   video: Video,
   language: string | undefined,
-  service: 'groq' | 'deepgram',
+  service: 'deepgram',
   onProgress?: (progress: number, stage: string) => void
 ): Promise<string> {
   const { splitVideoIntoSegments } = await import('./videoSplitterService');
 
-  // Split into 10-minute chunks to stay under 25MB
+  // Split into 10-minute chunks
   const segmentDuration = 600; // 10 minutes
   onProgress?.(5, 'Splitting video into chunks...');
 
@@ -226,23 +200,12 @@ async function processFileInChunks(
     onProgress?.(progressBase, `Processing chunk ${i + 1}/${totalSegments}...`);
 
     try {
-      let srtContent: string;
-
-      if (service === 'groq') {
-        const result = await generateSubtitlesWithGroq(
-          segment.file,
-          language,
-          (p) => onProgress?.(progressBase + (p * 0.7) / totalSegments, `Chunk ${i + 1}/${totalSegments}`)
-        );
-        srtContent = groqToSrt(result);
-      } else {
-        const result = await generateSubtitlesWithDeepgram(
-          segment.file,
-          language,
-          (p) => onProgress?.(progressBase + (p * 0.7) / totalSegments, `Chunk ${i + 1}/${totalSegments}`)
-        );
-        srtContent = deepgramToSrt(result);
-      }
+      const result = await generateSubtitlesWithDeepgram(
+        segment.file,
+        language,
+        (p) => onProgress?.(progressBase + (p * 0.7) / totalSegments, `Chunk ${i + 1}/${totalSegments}`)
+      );
+      const srtContent = deepgramToSrt(result);
 
       // Adjust timestamps
       const adjustedSrt = adjustSrtTimestamps(srtContent, segment.startTime);
@@ -312,18 +275,13 @@ function formatTimestamp(seconds: number): string {
  * Get recommended service for file
  */
 export async function getRecommendedService(fileSizeMB: number): Promise<string> {
-  const groqAvailable = await isGroqAvailable();
   const deepgramAvailable = await isDeepgramAvailable();
-
-  if (groqAvailable && fileSizeMB <= GROQ_SIZE_LIMIT_MB) {
-    return 'Groq Whisper (fastest)';
-  }
 
   if (deepgramAvailable && fileSizeMB <= 100) {
     return 'Deepgram (high quality)';
   }
 
-  if (fileSizeMB > GROQ_SIZE_LIMIT_MB && (groqAvailable || deepgramAvailable)) {
+  if (fileSizeMB > 100 && deepgramAvailable) {
     return 'Chunked processing';
   }
 

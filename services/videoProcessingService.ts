@@ -52,7 +52,7 @@ interface SubtitleGenerationResult {
   segments: SubtitleSegment[];
   srt: string;
   fromCache: boolean;
-  provider: 'cache' | 'gemini' | 'whisper' | 'visual' | 'groq' | 'deepgram' | 'groq-chunked' | 'deepgram-chunked' | 'gemini-segmented';
+  provider: 'cache' | 'gemini' | 'whisper' | 'visual' | 'deepgram' | 'deepgram-chunked' | 'gemini-segmented';
 }
 
 const LANGUAGE_CODE_MAP: Record<string, string> = {
