@@ -13,107 +13,16 @@ let ffmpegInstance: FFmpeg | null = null;
 let isFFmpegLoaded = false;
 let loadingPromise: Promise<FFmpeg> | null = null;
 
-const DEFAULT_FFMPEG_VERSION = '0.12.10';
+const DEFAULT_FFMPEG_VERSION = '0.12.9';
 const DEFAULT_BASE_URLS = [
   `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${DEFAULT_FFMPEG_VERSION}/dist/umd`,
-  `https://fastly.jsdelivr.net/npm/@ffmpeg/core@${DEFAULT_FFMPEG_VERSION}/dist/umd`,
-  'https://cdn.jsdelivr.net/npm/@ffmpeg/core@latest/dist/umd',
-  'https://fastly.jsdelivr.net/npm/@ffmpeg/core@latest/dist/umd',
   `https://unpkg.com/@ffmpeg/core@${DEFAULT_FFMPEG_VERSION}/dist/umd`,
-  `https://npm.elemecdn.com/@ffmpeg/core@${DEFAULT_FFMPEG_VERSION}/dist/umd`,
-  `https://npmmirror.com/mirrors/@ffmpeg/core/${DEFAULT_FFMPEG_VERSION}/dist/umd`,
 ];
-
-const CDN_HOST_FALLBACKS: Record<string, string[]> = {
-  'cdn.jsdelivr.net': ['fastly.jsdelivr.net'],
-  'fastly.jsdelivr.net': ['cdn.jsdelivr.net'],
-  'unpkg.com': ['npm.elemecdn.com', 'cdn.jsdelivr.net'],
-  'npm.elemecdn.com': ['unpkg.com'],
-};
 
 const DEFAULT_FETCH_TIMEOUT = 45_000;
 const DEFAULT_LOAD_TIMEOUT = 120_000;
 
 const blobUrlCache = new Map<string, string>();
-
-const warnedBaseUrlVersions = new Set<string>();
-
-function ensureSupportedVersion(url: string): string {
-  let rewritten = url.replace(/(@ffmpeg\/core@)([^/]+)/, (match, prefix, version) => {
-    if (version === 'latest' || version === DEFAULT_FFMPEG_VERSION) {
-      return `${prefix}${version}`;
-    }
-
-    if (!warnedBaseUrlVersions.has(version)) {
-      warnedBaseUrlVersions.add(version);
-      console.warn(
-        `[FFmpeg] Rewriting unsupported core version "${version}" to ${DEFAULT_FFMPEG_VERSION}. ` +
-          'Update VITE_FFMPEG_BASE_URL if a different version is required.',
-      );
-    }
-
-    return `${prefix}${DEFAULT_FFMPEG_VERSION}`;
-  });
-
-  rewritten = rewritten.replace(
-    /(npmmirror\.com\/mirrors\/[^/]+\/)([^/]+)(\/.*)/,
-    (match, prefix, version, suffix) => {
-      if (version === DEFAULT_FFMPEG_VERSION) {
-        return match;
-      }
-
-      if (!warnedBaseUrlVersions.has(version)) {
-        warnedBaseUrlVersions.add(version);
-        console.warn(
-          `[FFmpeg] Rewriting unsupported mirrored core version "${version}" to ${DEFAULT_FFMPEG_VERSION}. ` +
-            'Update VITE_FFMPEG_BASE_URL if a different version is required.',
-        );
-      }
-
-      return `${prefix}${DEFAULT_FFMPEG_VERSION}${suffix}`;
-    },
-  );
-
-  return rewritten;
-}
-
-function normaliseBaseUrl(url: string): string {
-  const trimmed = url.endsWith('/') ? url.slice(0, -1) : url;
-  return ensureSupportedVersion(trimmed);
-}
-
-function generateFallbackBaseUrls(failedBaseUrl: string): string[] {
-  const fallbacks = new Set<string>();
-
-  const versionMatch = failedBaseUrl.match(/@ffmpeg\/core@[^/]+/);
-
-  if (versionMatch) {
-    const versionSegment = versionMatch[0];
-    fallbacks.add(
-      normaliseBaseUrl(
-        failedBaseUrl.replace(versionSegment, `@ffmpeg/core@${DEFAULT_FFMPEG_VERSION}`),
-      ),
-    );
-    fallbacks.add(normaliseBaseUrl(failedBaseUrl.replace(versionSegment, '@ffmpeg/core@latest')));
-  }
-
-  try {
-    const parsed = new URL(failedBaseUrl);
-    const hostFallbacks = CDN_HOST_FALLBACKS[parsed.host];
-
-    hostFallbacks?.forEach((nextHost) => {
-      const swapped = new URL(parsed.toString());
-      swapped.host = nextHost;
-      fallbacks.add(normaliseBaseUrl(swapped.toString()));
-    });
-  } catch {
-    // ignore parse errors for custom schemes
-  }
-
-  DEFAULT_BASE_URLS.forEach((url) => fallbacks.add(normaliseBaseUrl(url)));
-
-  return Array.from(fallbacks.values());
-}
 
 function resolveConfiguredBaseUrls(): string[] {
   const raw = (import.meta as any).env?.VITE_FFMPEG_BASE_URL as string | undefined;
@@ -131,7 +40,9 @@ function resolveConfiguredBaseUrls(): string[] {
       return;
     }
 
-    unique.add(normaliseBaseUrl(url));
+    // Normalise trailing slash to avoid duplicate requests
+    const normalised = url.endsWith('/') ? url.slice(0, -1) : url;
+    unique.add(normalised);
   });
 
   return Array.from(unique.values());
@@ -194,13 +105,7 @@ async function createBlobUrlFromSource(
 }
 
 function resolveAssetUrl(baseUrl: string, assetName: string): string {
-  const url = `${baseUrl}/${assetName}`;
-
-  if (/unpkg\.com/.test(baseUrl) && assetName.endsWith('.js')) {
-    return `${url}?module`;
-  }
-
-  return url;
+  return `${baseUrl}/${assetName}`;
 }
 
 function attachEventHandlers(instance: FFmpeg, onProgress?: (progress: number) => void) {
@@ -211,38 +116,6 @@ function attachEventHandlers(instance: FFmpeg, onProgress?: (progress: number) =
   instance.on('progress', ({ progress }) => {
     onProgress?.(Math.round(progress * 100));
   });
-}
-
-async function loadUsingBaseUrl(
-  baseUrl: string,
-  fetchTimeout: number,
-  onProgress?: (progress: number) => void,
-): Promise<FFmpeg> {
-  const instance = new FFmpeg();
-  attachEventHandlers(instance, onProgress);
-
-  console.log(`[FFmpeg] Attempting load from ${baseUrl}`);
-
-  try {
-    const [coreURL, wasmURL, workerURL] = await Promise.all([
-      createBlobUrlFromSource(resolveAssetUrl(baseUrl, 'ffmpeg-core.js'), 'text/javascript', fetchTimeout),
-      createBlobUrlFromSource(resolveAssetUrl(baseUrl, 'ffmpeg-core.wasm'), 'application/wasm', fetchTimeout),
-      createBlobUrlFromSource(resolveAssetUrl(baseUrl, 'ffmpeg-core.worker.js'), 'text/javascript', fetchTimeout),
-    ]);
-
-    await instance.load({
-      coreURL,
-      wasmURL,
-      workerURL,
-    });
-
-    console.log(`[FFmpeg] Load completed successfully from ${baseUrl}`);
-
-    return instance;
-  } catch (error) {
-    console.error(`[FFmpeg] Failed to load from ${baseUrl}:`, error);
-    throw error;
-  }
 }
 
 /**
@@ -265,34 +138,34 @@ async function loadFFmpeg(onProgress?: (progress: number) => void): Promise<FFmp
 
   loadingPromise = (async () => {
     let lastError: unknown = null;
-    const attempted = new Set<string>();
-    const queue = [...baseUrls];
 
-    while (queue.length > 0) {
-      const candidate = normaliseBaseUrl(queue.shift()!);
-
-      if (attempted.has(candidate)) {
-        continue;
-      }
-
-      attempted.add(candidate);
-
+    for (const baseUrl of baseUrls) {
       try {
-        const instance = await loadUsingBaseUrl(candidate, fetchTimeout, onProgress);
+        const instance = new FFmpeg();
+        attachEventHandlers(instance, onProgress);
+
+        console.log(`[FFmpeg] Attempting load from ${baseUrl}`);
+
+        const [coreURL, wasmURL, workerURL] = await Promise.all([
+          createBlobUrlFromSource(resolveAssetUrl(baseUrl, 'ffmpeg-core.js'), 'text/javascript', fetchTimeout),
+          createBlobUrlFromSource(resolveAssetUrl(baseUrl, 'ffmpeg-core.wasm'), 'application/wasm', fetchTimeout),
+          createBlobUrlFromSource(resolveAssetUrl(baseUrl, 'ffmpeg-core.worker.js'), 'text/javascript', fetchTimeout),
+        ]);
+
+        await instance.load({
+          coreURL,
+          wasmURL,
+          workerURL,
+        });
+
+        console.log(`[FFmpeg] Load completed successfully from ${baseUrl}`);
 
         ffmpegInstance = instance;
         isFFmpegLoaded = true;
         return instance;
       } catch (error) {
         lastError = error;
-
-        generateFallbackBaseUrls(candidate).forEach((fallback) => {
-          const normalisedFallback = normaliseBaseUrl(fallback);
-
-          if (!attempted.has(normalisedFallback)) {
-            queue.push(normalisedFallback);
-          }
-        });
+        console.error(`[FFmpeg] Failed to load from ${baseUrl}:`, error);
       }
     }
 
