@@ -65,9 +65,15 @@ export async function generateSubtitlesIntelligent(
         processingTimeMs,
       };
     } catch (error) {
-      console.warn('[Router] Deepgram failed:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[Router] ❌ Deepgram failed:', errorMessage);
+      console.error('[Router] Full error:', error);
       // Continue to next strategy
     }
+  } else if (!deepgramAvailable) {
+    console.log('[Router] ⚠️ Deepgram not available (API key not configured)');
+  } else {
+    console.log(`[Router] ⚠️ File too large for direct Deepgram (${fileSizeMB.toFixed(1)}MB > 100MB)`);
   }
 
   // Strategy 2: For large files, try chunked processing with Deepgram

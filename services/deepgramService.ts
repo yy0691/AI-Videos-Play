@@ -41,7 +41,13 @@ interface DeepgramSegment {
  */
 export async function isDeepgramAvailable(): Promise<boolean> {
   const settings = await getEffectiveSettings();
-  return !!settings.deepgramApiKey;
+  const available = !!settings.deepgramApiKey;
+  console.log('[Deepgram] Availability check:', {
+    available,
+    hasKey: !!settings.deepgramApiKey,
+    keyLength: settings.deepgramApiKey?.length
+  });
+  return available;
 }
 
 /**
@@ -61,7 +67,11 @@ export async function generateSubtitlesWithDeepgram(
 
   onProgress?.(10);
 
-  console.log('[Deepgram] Transcribing with Nova-2 model...');
+  console.log('[Deepgram] Transcribing with Nova-2 model...', {
+    fileSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+    fileType: file.type,
+    language
+  });
 
   // Build API URL with parameters
   const params = new URLSearchParams({
@@ -77,12 +87,21 @@ export async function generateSubtitlesWithDeepgram(
     params.append('language', language);
   }
 
+  // Determine content type - Deepgram accepts video files directly
+  const contentType = file.type || 'video/mp4';
+
+  console.log('[Deepgram] Sending request with:', {
+    url: `https://api.deepgram.com/v1/listen?${params.toString()}`,
+    contentType,
+    hasAuth: !!settings.deepgramApiKey
+  });
+
   // Call Deepgram API
   const response = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
     method: 'POST',
     headers: {
       'Authorization': `Token ${settings.deepgramApiKey}`,
-      'Content-Type': file.type || 'audio/webm',
+      'Content-Type': contentType,
     },
     body: file,
   });
@@ -91,8 +110,13 @@ export async function generateSubtitlesWithDeepgram(
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('[Deepgram] API error:', response.status, errorText);
-    throw new Error(`Deepgram API error: ${response.status} - ${errorText}`);
+    console.error('[Deepgram] API error:', {
+      status: response.status,
+      statusText: response.statusText,
+      errorBody: errorText,
+      headers: Object.fromEntries(response.headers.entries())
+    });
+    throw new Error(`Deepgram API error (${response.status}): ${errorText || response.statusText}`);
   }
 
   const result: DeepgramResponse = await response.json();
