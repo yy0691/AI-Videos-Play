@@ -15,7 +15,8 @@ import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import { clearOldCache } from './services/cacheService';
 import { User } from '@supabase/supabase-js';
 import { authService } from './services/authService';
-import autoSyncService from './services/autoSyncService';
+import autoSyncService, { getSyncStatus } from './services/autoSyncService';
+import { saveSubtitles } from './services/subtitleService';
 
 const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettings: APISettings) => void }> = ({ settings, onSettingsChange }) => {
   const [videos, setVideos] = useState<Video[]>([]);
@@ -31,8 +32,10 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [showAccountPanel, setShowAccountPanel] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [syncStatusSnapshot, setSyncStatusSnapshot] = useState(() => getSyncStatus());
 
   const { t } = useLanguage();
 
@@ -64,12 +67,26 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
       };
     }
 
-    // 初始化自动同步
-    autoSyncService.initAutoSync();
     return () => {
       mounted = false;
     };
   }, [isAuthModalOpen]);
+
+  useEffect(() => {
+    autoSyncService.initAutoSync();
+    const timer = window.setInterval(() => {
+      setSyncStatusSnapshot(getSyncStatus());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const openAuthModal = useCallback((mode: 'signin' | 'signup' = 'signin') => {
+    setAuthMode(mode);
+    setIsAuthModalOpen(true);
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -164,6 +181,18 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
     setTimeout(() => setError(null), 5000);
   };
 
+  const { status: syncState, queueLength, lastSyncTime, lastError } = syncStatusSnapshot;
+  const showSyncStatus = syncState !== 'idle' || queueLength > 0 || Boolean(lastSyncTime) || Boolean(lastError);
+  const formattedLastSync = lastSyncTime ? lastSyncTime.toLocaleTimeString() : null;
+  let syncPrimaryMessage = '';
+  if (syncState === 'syncing') {
+    syncPrimaryMessage = '🔄 正在同步到云端...';
+  } else if (syncState === 'error') {
+    syncPrimaryMessage = `❌ ${lastError ?? '同步失败，正在重试...'}`;
+  } else {
+    syncPrimaryMessage = '✅ 云端已同步';
+  }
+
   // Import a single video
   const handleSingleVideoImport = async (file: File, folderPath?: string, subtitleFile?: File) => {
     try {
@@ -195,7 +224,7 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
               const content = e.target?.result as string;
               const segments = parseSubtitleFile(subtitleFile.name, content);
               const newSubtitles: Subtitles = { id: newVideo.id, videoId: newVideo.id, segments };
-              await subtitleDB.put(newSubtitles);
+              await saveSubtitles(newVideo.id, newSubtitles);
               resolve();
             } catch (err) {
               reject(err);
@@ -376,6 +405,7 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
       {isAuthModalOpen && (
         <AuthModal
           isOpen={isAuthModalOpen}
+          initialMode={authMode}
           onClose={() => setIsAuthModalOpen(false)}
           onSuccess={() => {
             setIsAuthModalOpen(false);
@@ -408,7 +438,7 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
               onOpenSettings={() => setIsSettingsModalOpen(true)}
               onDeleteFolder={handleDeleteFolder}
               isMobile={false}
-              onOpenAuth={() => setIsAuthModalOpen(true)}
+              onOpenAuth={() => openAuthModal('signin')}
               onOpenAccount={() => setShowAccountPanel(true)}
               currentUser={currentUser}
             />
@@ -446,7 +476,7 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
                   onDeleteFolder={handleDeleteFolder}
                   isMobile={true}
                   onOpenAuth={() => {
-                    setIsAuthModalOpen(true);
+                    openAuthModal('signin');
                     setIsMobileSidebarOpen(false);
                   }}
                   onOpenAccount={() => {
@@ -494,12 +524,36 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
       ) : (
         <div className="flex-1 flex flex-col min-h-full">
           <div className="flex-1">
-            <WelcomeScreen onImportFiles={handleFileImports} onImportFolderSelection={handleImportFolderSelection} />
+            <WelcomeScreen
+              onImportFiles={handleFileImports}
+              onImportFolderSelection={handleImportFolderSelection}
+              onLogin={() => openAuthModal('signin')}
+              onRegister={() => openAuthModal('signup')}
+              onOpenAccount={() => setShowAccountPanel(true)}
+              currentUser={currentUser}
+            />
           </div>
           <Footer />
         </div>
       )}
       
+      {showSyncStatus && (
+        <div className="fixed top-6 right-6 z-40">
+          <div className="rounded-2xl border border-white/10 bg-slate-900/80 text-slate-100 px-4 py-3 shadow-2xl backdrop-blur-lg min-w-[220px]">
+            <p className="text-sm font-medium tracking-wide">
+              {syncPrimaryMessage}
+              {queueLength > 0 && `（${queueLength} 项待同步）`}
+            </p>
+            {syncState === 'error' && lastError && (
+              <p className="text-xs text-red-200 mt-1 leading-relaxed">{lastError}</p>
+            )}
+            {formattedLastSync && syncState !== 'error' && (
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">最后同步：{formattedLastSync}</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Task Queue Panel - Floating task status indicator */}
       <TaskQueuePanel />
     </div>
