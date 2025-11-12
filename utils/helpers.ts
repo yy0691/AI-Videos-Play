@@ -1,5 +1,38 @@
 import { SubtitleSegment } from '../types';
 
+/**
+ * Generate a UUID v4
+ */
+export const generateUUID = (): string => {
+  return crypto.randomUUID();
+};
+
+/**
+ * Generate a deterministic UUID from a string (for backwards compatibility)
+ * This creates a consistent UUID for the same input string
+ * Uses SHA-256 hash to generate a valid UUID v4
+ */
+export const generateDeterministicUUID = async (input: string): Promise<string> => {
+  // Use Web Crypto API to generate a hash
+  const encoder = new TextEncoder();
+  const data = encoder.encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  // Format as UUID v4: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+  // Take first 32 hex characters from hash
+  const uuid = [
+    hashHex.slice(0, 8),
+    hashHex.slice(8, 12),
+    '4' + hashHex.slice(13, 16),  // Version 4
+    ((parseInt(hashHex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0') + hashHex.slice(18, 20),  // Variant bits
+    hashHex.slice(20, 32)
+  ].join('-');
+  
+  return uuid;
+};
+
 export const fileToBase64 = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();

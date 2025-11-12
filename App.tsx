@@ -10,7 +10,7 @@ import Footer from './components/Footer';
 import TaskQueuePanel from './components/TaskQueuePanel';
 import { Video, Subtitles, Analysis, Note, APISettings } from './types';
 import { videoDB, subtitleDB, analysisDB, noteDB, appDB, settingsDB, getEffectiveSettings } from './services/dbService';
-import { getVideoMetadata, parseSubtitleFile } from './utils/helpers';
+import { getVideoMetadata, parseSubtitleFile, generateDeterministicUUID } from './utils/helpers';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import { clearOldCache } from './services/cacheService';
 import { User } from '@supabase/supabase-js';
@@ -165,8 +165,12 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
   const handleSingleVideoImport = async (file: File, folderPath?: string, subtitleFile?: File) => {
     try {
       const metadata = await getVideoMetadata(file);
+      // Generate a deterministic UUID based on file path and timestamp
+      const fileIdentifier = `${folderPath ? folderPath + '/' : ''}${file.name}-${file.lastModified}`;
+      const videoId = await generateDeterministicUUID(fileIdentifier);
+      
       const newVideo: Video = {
-        id: `${folderPath ? folderPath + '/' : ''}${file.name}-${file.lastModified}`,
+        id: videoId,
         file,
         name: file.name,
         folderPath,
