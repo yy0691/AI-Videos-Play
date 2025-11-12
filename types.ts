@@ -5,6 +5,9 @@ export interface Video {
   duration: number;
   width: number;
   height: number;
+  size: number; // File size in bytes
+  hash?: string; // SHA-256 hash of the file
+  language?: string; // Video language
   importedAt: string;
   folderPath?: string;
 }

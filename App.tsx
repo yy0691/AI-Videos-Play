@@ -173,6 +173,7 @@ const AppContent: React.FC<{ settings: APISettings, onSettingsChange: (newSettin
         id: videoId,
         file,
         name: file.name,
+        size: file.size,
         folderPath,
         ...metadata,
         importedAt: new Date().toISOString(),

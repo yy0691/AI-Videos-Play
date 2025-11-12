@@ -34,7 +34,16 @@ For secure deployment with API key protection, see the detailed guide in [VERCEL
 
 **Quick Summary:**
 - Set provider API keys (e.g., `GEMINI_API_KEY`, `OPENAI_API_KEY`) in Vercel environment variables
+- Set `VITE_DEEPGRAM_API_KEY` for system-wide subtitle generation (optional)
+- Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for cloud sync (optional)
 - Your API keys stay secure on the backend
 - Users can try the app without configuring their own key
 - Users who set their own key use direct API calls (not your quota)
 - Multiple providers can be configured simultaneously
+
+**Environment Variables:**
+- `VITE_DEEPGRAM_API_KEY` - System default Deepgram key for subtitle generation
+- `VITE_SUPABASE_URL` - Supabase project URL for cloud sync
+- `VITE_SUPABASE_ANON_KEY` - Supabase anonymous key for cloud sync
+
+See [DEEPGRAM_SETUP.md](./docs/DEEPGRAM_SETUP.md) for Deepgram configuration details.

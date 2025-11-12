@@ -5,6 +5,10 @@
 
 import { getEffectiveSettings } from './dbService';
 
+// System default Deepgram API key (from environment variable)
+// Users can override this in settings
+const SYSTEM_DEEPGRAM_KEY = import.meta.env.VITE_DEEPGRAM_API_KEY;
+
 interface DeepgramResponse {
   metadata: {
     transaction_key: string;
@@ -37,15 +41,26 @@ interface DeepgramSegment {
 }
 
 /**
+ * Get the Deepgram API key to use
+ * Priority: User's key > System default key
+ */
+function getDeepgramApiKey(userKey?: string): string | undefined {
+  return userKey || SYSTEM_DEEPGRAM_KEY;
+}
+
+/**
  * Check if Deepgram API is available and configured
  */
 export async function isDeepgramAvailable(): Promise<boolean> {
   const settings = await getEffectiveSettings();
-  const available = !!settings.deepgramApiKey;
+  const apiKey = getDeepgramApiKey(settings.deepgramApiKey);
+  const available = !!apiKey;
   console.log('[Deepgram] Availability check:', {
     available,
-    hasKey: !!settings.deepgramApiKey,
-    keyLength: settings.deepgramApiKey?.length
+    hasUserKey: !!settings.deepgramApiKey,
+    hasSystemKey: !!SYSTEM_DEEPGRAM_KEY,
+    usingKey: settings.deepgramApiKey ? 'user' : 'system',
+    keyLength: apiKey?.length
   });
   return available;
 }
@@ -60,9 +75,10 @@ export async function generateSubtitlesWithDeepgram(
   onProgress?: (progress: number) => void
 ): Promise<DeepgramResponse> {
   const settings = await getEffectiveSettings();
+  const apiKey = getDeepgramApiKey(settings.deepgramApiKey);
 
-  if (!settings.deepgramApiKey) {
-    throw new Error('Deepgram API key not configured');
+  if (!apiKey) {
+    throw new Error('Deepgram API key not configured. Please add VITE_DEEPGRAM_API_KEY to environment variables or configure in settings.');
   }
 
   onProgress?.(10);
@@ -93,14 +109,15 @@ export async function generateSubtitlesWithDeepgram(
   console.log('[Deepgram] Sending request with:', {
     url: `https://api.deepgram.com/v1/listen?${params.toString()}`,
     contentType,
-    hasAuth: !!settings.deepgramApiKey
+    hasAuth: !!apiKey,
+    keySource: settings.deepgramApiKey ? 'user' : 'system'
   });
 
   // Call Deepgram API
   const response = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
     method: 'POST',
     headers: {
-      'Authorization': `Token ${settings.deepgramApiKey}`,
+      'Authorization': `Token ${apiKey}`,
       'Content-Type': contentType,
     },
     body: file,
