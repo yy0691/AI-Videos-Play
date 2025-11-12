@@ -14,8 +14,10 @@ let isFFmpegLoaded = false;
 let loadingPromise: Promise<FFmpeg> | null = null;
 
 const DEFAULT_FFMPEG_VERSION = '0.12.10';
-const DEFAULT_BASE_URLS = [
-  `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${DEFAULT_FFMPEG_VERSION}/dist/esm`,
+const DEFAULT_BASE_URLS: string[] = [
+  // FFmpeg core files are not available on CDN for 0.12.x
+  // This is intentionally left empty - FFmpeg is optional
+  // The system will fall back to Deepgram/Gemini for transcription
 ];
 
 const DEFAULT_FETCH_TIMEOUT = 45_000;
@@ -135,6 +137,14 @@ async function loadFFmpeg(onProgress?: (progress: number) => void): Promise<FFmp
   }
 
   const baseUrls = resolveConfiguredBaseUrls();
+
+  // Check if any CDN sources are configured
+  if (baseUrls.length === 0) {
+    const error = new Error('FFmpeg CDN sources not configured');
+    loadingPromise = Promise.reject(error);
+    return loadingPromise;
+  }
+
   const fetchTimeout = getFetchTimeout();
 
   console.log('[FFmpeg] Starting load with sources:', baseUrls);
