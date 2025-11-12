@@ -25,7 +25,8 @@ import {
   generateSubtitlesIntelligent,
   RouterResult,
 } from './intelligentRouter';
-import { analysisDB, getEffectiveSettings } from './dbService';
+import { getEffectiveSettings } from './dbService';
+import { saveAnalysis } from './analysisService';
 import { analyzeVideoMetadata, VideoMetadataProfile } from './videoMetadataService';
 import { generateVisualTranscript } from './visualTranscriptService';
 import { 
@@ -610,7 +611,7 @@ export async function generateResilientInsights(
       createdAt: new Date().toISOString(),
     };
 
-    await analysisDB.put(analysis);
+    await saveAnalysis(analysis);
     newAnalyses.push(analysis);
 
     completed += 1;

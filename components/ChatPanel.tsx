@@ -6,6 +6,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import { useLanguage } from '../contexts/LanguageContext';
 import { extractFramesFromVideo } from '../utils/helpers';
 import { chatDB } from '../services/dbService';
+import { saveChatHistory as persistChatHistory } from '../services/chatService';
 
 interface ChatPanelProps {
   video: Video;
@@ -51,7 +52,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
 
   // Save chat history when it changes
   useEffect(() => {
-    const saveChatHistory = async () => {
+    const saveHistory = async () => {
       if (history.length === 0) return;
 
       try {
@@ -61,13 +62,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
           messages: history,
           updatedAt: new Date().toISOString(),
         };
-        await chatDB.put(chatHistory);
+        await persistChatHistory(chatHistory);
       } catch (error) {
         console.error('Failed to save chat history:', error);
       }
     };
 
-    saveChatHistory();
+    saveHistory();
   }, [history, video.id]);
 
   useEffect(() => {

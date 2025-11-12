@@ -20,295 +20,303 @@ interface SyncResult {
   error?: string;
 }
 
-export const syncService = {
-  async syncToCloud(userId: string): Promise<SyncResult> {
-    if (!supabase) {
-      return {
-        success: false,
-        synced: { videos: 0, subtitles: 0, analyses: 0, notes: 0, chats: 0 },
-        error: 'Supabase not configured',
-      };
-    }
-
-    const result: SyncResult = {
-      success: true,
+async function syncToCloud(userId: string, videoId?: string): Promise<SyncResult> {
+  if (!supabase) {
+    return {
+      success: false,
       synced: { videos: 0, subtitles: 0, analyses: 0, notes: 0, chats: 0 },
+      error: 'Supabase not configured',
     };
+  }
 
-    try {
-      const videos = await videoDB.getAll();
+  const result: SyncResult = {
+    success: true,
+    synced: { videos: 0, subtitles: 0, analyses: 0, notes: 0, chats: 0 },
+  };
 
-      for (const video of videos) {
-        const videoMetadata = {
-          id: video.id,
-          user_id: userId,
-          name: video.name,
-          duration: video.duration,
-          size: video.size,
-          file_hash: video.hash,
-          folder_path: video.folderPath,
-          language: video.language,
-        };
+  try {
+    const videos = await videoDB.getAll();
+    const videosToSync = videoId ? videos.filter(video => video.id === videoId) : videos;
 
-        const { error: videoError } = await supabase
-          .from('video_metadata')
-          .upsert(videoMetadata, { onConflict: 'id' });
+    for (const video of videosToSync) {
+      const videoMetadata = {
+        id: video.id,
+        user_id: userId,
+        name: video.name,
+        duration: video.duration,
+        size: video.size,
+        file_hash: video.hash,
+        folder_path: video.folderPath,
+        language: video.language,
+      };
 
-        if (videoError) {
-          console.error('Error syncing video metadata:', videoError);
-          continue;
-        }
+      const { error: videoError } = await supabase
+        .from('video_metadata')
+        .upsert(videoMetadata, { onConflict: 'id' });
 
-        result.synced.videos++;
-
-        const subtitle = await subtitleDB.get(video.id);
-        if (subtitle) {
-          // Generate content from segments
-          const content = subtitle.segments
-            .map(seg => seg.text)
-            .join('\n');
-          
-          const language = subtitle.translatedLanguage || 'en';
-          
-          const { error: subtitleError } = await supabase
-            .from('subtitles')
-            .upsert(
-              {
-                id: subtitle.id,
-                video_id: video.id,
-                user_id: userId,
-                content: content,
-                language: language,
-                segments: subtitle.segments,
-              },
-              { onConflict: 'video_id,user_id' }
-            );
-
-          if (subtitleError) {
-            console.error('Error syncing subtitle:', subtitleError);
-          } else {
-            result.synced.subtitles++;
-          }
-        }
-
-        const analyses = await analysisDB.getByVideoId(video.id);
-        for (const analysis of analyses) {
-          // Convert local format (prompt/result) to Supabase format (title/content)
-          const title = analysis.prompt || `${analysis.type} analysis`;
-          const content = analysis.result || '';
-          
-          const { error: analysisError } = await supabase
-            .from('analyses')
-            .upsert(
-              {
-                id: analysis.id,
-                video_id: video.id,
-                user_id: userId,
-                type: analysis.type,
-                title: title,
-                content: content,
-              },
-              { onConflict: 'id' }
-            );
-
-          if (analysisError) {
-            console.error('Error syncing analysis:', analysisError);
-          } else {
-            result.synced.analyses++;
-          }
-        }
-
-        const note = await noteDB.get(video.id);
-        if (note) {
-          const { error: noteError } = await supabase
-            .from('notes')
-            .upsert(
-              {
-                id: note.id,
-                video_id: video.id,
-                user_id: userId,
-                content: note.content,
-              },
-              { onConflict: 'video_id,user_id' }
-            );
-
-          if (!noteError) result.synced.notes++;
-        }
-
-        const chat = await chatDB.get(video.id);
-        if (chat) {
-          const { error: chatError } = await supabase
-            .from('chat_history')
-            .upsert(
-              {
-                id: chat.id,
-                video_id: video.id,
-                user_id: userId,
-                messages: chat.messages,
-              },
-              { onConflict: 'video_id,user_id' }
-            );
-
-          if (!chatError) result.synced.chats++;
-        }
+      if (videoError) {
+        console.error('Error syncing video metadata:', videoError);
+        continue;
       }
 
-      this.setLastSyncTime();
-    } catch (error) {
-      result.success = false;
-      result.error = error instanceof Error ? error.message : 'Unknown error';
-    }
+      result.synced.videos++;
 
-    return result;
-  },
+      const subtitle = await subtitleDB.get(video.id);
+      if (subtitle) {
+        // Generate content from segments
+        const content = subtitle.segments
+          .map(seg => seg.text)
+          .join('\n');
 
-  async syncFromCloud(userId: string): Promise<SyncResult> {
-    if (!supabase) {
-      return {
-        success: false,
-        synced: { videos: 0, subtitles: 0, analyses: 0, notes: 0, chats: 0 },
-        error: 'Supabase not configured',
-      };
-    }
+        const language = subtitle.translatedLanguage || 'en';
 
-    const result: SyncResult = {
-      success: true,
-      synced: { videos: 0, subtitles: 0, analyses: 0, notes: 0, chats: 0 },
-    };
-
-    try {
-      const { data: videoMetadataList, error: videosError } = await supabase
-        .from('video_metadata')
-        .select('*')
-        .eq('user_id', userId);
-
-      if (videosError) throw videosError;
-
-      if (!videoMetadataList) return result;
-
-      for (const metadata of videoMetadataList) {
-        const existingVideo = await videoDB.get(metadata.id);
-        if (existingVideo) {
-          console.log(`Video ${metadata.name} already exists locally, skipping...`);
-          continue;
-        }
-
-        console.warn(`Video file for "${metadata.name}" not found locally. Only metadata will be available.`);
-        result.synced.videos++;
-
-        const { data: subtitleData } = await supabase
+        const { error: subtitleError } = await supabase
           .from('subtitles')
-          .select('*')
-          .eq('video_id', metadata.id)
-          .eq('user_id', userId)
-          .maybeSingle();
+          .upsert(
+            {
+              id: subtitle.id,
+              video_id: video.id,
+              user_id: userId,
+              content: content,
+              language: language,
+              segments: subtitle.segments,
+            },
+            { onConflict: 'video_id,user_id' }
+          );
 
-        if (subtitleData) {
-          await subtitleDB.put({
-            id: subtitleData.id,
-            videoId: metadata.id,
-            content: subtitleData.content,
-            language: subtitleData.language,
-            segments: subtitleData.segments,
-          });
+        if (subtitleError) {
+          console.error('Error syncing subtitle:', subtitleError);
+        } else {
           result.synced.subtitles++;
         }
+      }
 
-        const { data: analysesData } = await supabase
+      const analyses = await analysisDB.getByVideoId(video.id);
+      for (const analysis of analyses) {
+        // Convert local format (prompt/result) to Supabase format (title/content)
+        const title = analysis.prompt || `${analysis.type} analysis`;
+        const content = analysis.result || '';
+
+        const { error: analysisError } = await supabase
           .from('analyses')
-          .select('*')
-          .eq('video_id', metadata.id)
-          .eq('user_id', userId);
-
-        if (analysesData) {
-          for (const analysis of analysesData) {
-            await analysisDB.put({
+          .upsert(
+            {
               id: analysis.id,
-              videoId: metadata.id,
-              type: analysis.type as 'summary' | 'key-info' | 'topics',
-              title: analysis.title,
-              content: analysis.content,
-            });
-            result.synced.analyses++;
-          }
-        }
+              video_id: video.id,
+              user_id: userId,
+              type: analysis.type,
+              title: title,
+              content: content,
+            },
+            { onConflict: 'id' }
+          );
 
-        const { data: noteData } = await supabase
-          .from('notes')
-          .select('*')
-          .eq('video_id', metadata.id)
-          .eq('user_id', userId)
-          .maybeSingle();
-
-        if (noteData) {
-          await noteDB.put({
-            id: noteData.id,
-            videoId: metadata.id,
-            content: noteData.content,
-          });
-          result.synced.notes++;
-        }
-
-        const { data: chatData } = await supabase
-          .from('chat_history')
-          .select('*')
-          .eq('video_id', metadata.id)
-          .eq('user_id', userId)
-          .maybeSingle();
-
-        if (chatData) {
-          await chatDB.put({
-            id: chatData.id,
-            videoId: metadata.id,
-            messages: chatData.messages,
-            updatedAt: chatData.updated_at,
-          });
-          result.synced.chats++;
+        if (analysisError) {
+          console.error('Error syncing analysis:', analysisError);
+        } else {
+          result.synced.analyses++;
         }
       }
 
-      this.setLastSyncTime();
-    } catch (error) {
-      result.success = false;
-      result.error = error instanceof Error ? error.message : 'Unknown error';
+      const note = await noteDB.get(video.id);
+      if (note) {
+        const { error: noteError } = await supabase
+          .from('notes')
+          .upsert(
+            {
+              id: note.id,
+              video_id: video.id,
+              user_id: userId,
+              content: note.content,
+            },
+            { onConflict: 'video_id,user_id' }
+          );
+
+        if (!noteError) result.synced.notes++;
+      }
+
+      const chat = await chatDB.get(video.id);
+      if (chat) {
+        const { error: chatError } = await supabase
+          .from('chat_history')
+          .upsert(
+            {
+              id: chat.id,
+              video_id: video.id,
+              user_id: userId,
+              messages: chat.messages,
+            },
+            { onConflict: 'video_id,user_id' }
+          );
+
+        if (!chatError) result.synced.chats++;
+      }
     }
 
-    return result;
-  },
+    setLastSyncTime();
+  } catch (error) {
+    result.success = false;
+    result.error = error instanceof Error ? error.message : 'Unknown error';
+  }
 
-  async deleteFromCloud(userId: string, videoId: string): Promise<boolean> {
-    if (!supabase) return false;
+  return result;
+}
 
-    try {
-      const { error } = await supabase
-        .from('video_metadata')
-        .delete()
-        .eq('id', videoId)
+async function syncFromCloud(userId: string): Promise<SyncResult> {
+  if (!supabase) {
+    return {
+      success: false,
+      synced: { videos: 0, subtitles: 0, analyses: 0, notes: 0, chats: 0 },
+      error: 'Supabase not configured',
+    };
+  }
+
+  const result: SyncResult = {
+    success: true,
+    synced: { videos: 0, subtitles: 0, analyses: 0, notes: 0, chats: 0 },
+  };
+
+  try {
+    const { data: videoMetadataList, error: videosError } = await supabase
+      .from('video_metadata')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (videosError) throw videosError;
+
+    if (!videoMetadataList) return result;
+
+    for (const metadata of videoMetadataList) {
+      const existingVideo = await videoDB.get(metadata.id);
+      if (existingVideo) {
+        console.log(`Video ${metadata.name} already exists locally, skipping...`);
+        continue;
+      }
+
+      console.warn(`Video file for "${metadata.name}" not found locally. Only metadata will be available.`);
+      result.synced.videos++;
+
+      const { data: subtitleData } = await supabase
+        .from('subtitles')
+        .select('*')
+        .eq('video_id', metadata.id)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (subtitleData) {
+        await subtitleDB.put({
+          id: subtitleData.id,
+          videoId: metadata.id,
+          content: subtitleData.content,
+          language: subtitleData.language,
+          segments: subtitleData.segments,
+        });
+        result.synced.subtitles++;
+      }
+
+      const { data: analysesData } = await supabase
+        .from('analyses')
+        .select('*')
+        .eq('video_id', metadata.id)
         .eq('user_id', userId);
 
-      if (error) throw error;
-      return true;
-    } catch (error) {
-      console.error('Error deleting from cloud:', error);
-      return false;
+      if (analysesData) {
+        for (const analysis of analysesData) {
+          await analysisDB.put({
+            id: analysis.id,
+            videoId: metadata.id,
+            type: analysis.type as 'summary' | 'key-info' | 'topics',
+            title: analysis.title,
+            content: analysis.content,
+          });
+          result.synced.analyses++;
+        }
+      }
+
+      const { data: noteData } = await supabase
+        .from('notes')
+        .select('*')
+        .eq('video_id', metadata.id)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (noteData) {
+        await noteDB.put({
+          id: noteData.id,
+          videoId: metadata.id,
+          content: noteData.content,
+        });
+        result.synced.notes++;
+      }
+
+      const { data: chatData } = await supabase
+        .from('chat_history')
+        .select('*')
+        .eq('video_id', metadata.id)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (chatData) {
+        await chatDB.put({
+          id: chatData.id,
+          videoId: metadata.id,
+          messages: chatData.messages,
+          updatedAt: chatData.updated_at,
+        });
+        result.synced.chats++;
+      }
     }
-  },
 
-  getLastSyncTime(): string | null {
-    return localStorage.getItem('lastSyncTime');
-  },
+    setLastSyncTime();
+  } catch (error) {
+    result.success = false;
+    result.error = error instanceof Error ? error.message : 'Unknown error';
+  }
 
-  setLastSyncTime(): void {
-    localStorage.setItem('lastSyncTime', new Date().toISOString());
-  },
+  return result;
+}
 
-  getSyncStatus(): SyncStatus {
-    return {
-      lastSyncAt: this.getLastSyncTime(),
-      isSyncing: false,
-      error: null,
-    };
-  },
+async function deleteFromCloud(userId: string, videoId: string): Promise<boolean> {
+  if (!supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from('video_metadata')
+      .delete()
+      .eq('id', videoId)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error deleting from cloud:', error);
+    return false;
+  }
+}
+
+function getLastSyncTime(): string | null {
+  return localStorage.getItem('lastSyncTime');
+}
+
+function setLastSyncTime(): void {
+  localStorage.setItem('lastSyncTime', new Date().toISOString());
+}
+
+function getSyncStatus(): SyncStatus {
+  return {
+    lastSyncAt: getLastSyncTime(),
+    isSyncing: false,
+    error: null,
+  };
+}
+
+export const syncService = {
+  syncToCloud,
+  syncFromCloud,
+  deleteFromCloud,
+  getLastSyncTime,
+  setLastSyncTime,
+  getSyncStatus,
 };
-// 在文件底部添加
+
 export { syncToCloud };

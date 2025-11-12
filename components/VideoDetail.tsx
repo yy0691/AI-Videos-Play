@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Video, Subtitles, Analysis, AnalysisType, Note, SubtitleDisplayMode } from '../types';
 import { parseSubtitleFile, formatTimestamp, parseSrt, segmentsToSrt, downloadFile, parseTimestampToSeconds } from '../utils/helpers';
 import { subtitleDB } from '../services/dbService';
+import { saveSubtitles } from '../services/subtitleService';
 import { translateSubtitles as translateSubtitlesLegacy } from '../services/geminiService';
 import { translateSubtitles, detectSubtitleLanguage, isTraditionalChinese } from '../services/translationService';
 import { generateVideoHash } from '../services/cacheService';
@@ -176,7 +177,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
             videoId: video.id,
             segments,
           };
-          await subtitleDB.put(newSubtitles);
+          await saveSubtitles(video.id, newSubtitles);
           onSubtitlesChange(video.id);
         } catch (err) {
             alert(err instanceof Error ? err.message : 'Failed to parse subtitle file.');
@@ -299,7 +300,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
             videoId: video.id,
             segments,
           };
-          await subtitleDB.put(partialSubtitles);
+          await saveSubtitles(video.id, partialSubtitles);
         },
       });
 
@@ -308,7 +309,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         videoId: video.id,
         segments: result.segments,
       };
-      await subtitleDB.put(newSubtitles);
+      await saveSubtitles(video.id, newSubtitles);
       onSubtitlesChange(video.id);
 
       setGenerationStatus({ active: true, stage: 'Complete!', progress: 100 });
@@ -384,7 +385,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         translatedAt: new Date().toISOString(),
       };
 
-      await subtitleDB.put(updatedSubtitles);
+      await saveSubtitles(video.id, updatedSubtitles);
       onSubtitlesChange(video.id);
 
       setGenerationStatus({ active: true, stage: 'Translation complete!', progress: 100 });
