@@ -1,8 +1,8 @@
 import { openDB, DBSchema } from 'idb';
-import { Video, Subtitles, Analysis, Note, APISettings } from '../types';
+import { Video, Subtitles, Analysis, Note, APISettings, ChatHistory } from '../types';
 
 const DB_NAME = 'LocalVideoAnalyzerDB';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 interface AppDB extends DBSchema {
   videos: {
@@ -26,6 +26,10 @@ interface AppDB extends DBSchema {
     key: string;
     value: APISettings;
   };
+  chatHistory: {
+    key: string;
+    value: ChatHistory;
+  };
 }
 
 const dbPromise = openDB<AppDB>(DB_NAME, DB_VERSION, {
@@ -46,6 +50,11 @@ const dbPromise = openDB<AppDB>(DB_NAME, DB_VERSION, {
     if (oldVersion < 3) {
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'id' });
+      }
+    }
+    if (oldVersion < 4) {
+      if (!db.objectStoreNames.contains('chatHistory')) {
+        db.createObjectStore('chatHistory', { keyPath: 'id' });
       }
     }
   },
@@ -99,6 +108,18 @@ export const noteDB = {
   },
 };
 
+export const chatDB = {
+  async get(id: string) {
+    return (await dbPromise).get('chatHistory', id);
+  },
+  async put(chatHistory: ChatHistory) {
+    return (await dbPromise).put('chatHistory', chatHistory);
+  },
+  async delete(id: string) {
+    return (await dbPromise).delete('chatHistory', id);
+  },
+};
+
 export const settingsDB = {
   async get(id: 'user-settings' = 'user-settings') {
     return (await dbPromise).get('settings', id);
@@ -112,14 +133,15 @@ export const appDB = {
   async deleteVideo(videoId: string) {
     const db = await dbPromise;
     const analysesToDelete = await db.getAllFromIndex('analyses', 'by-videoId', videoId);
-    
-    const tx = db.transaction(['videos', 'subtitles', 'analyses', 'notes'], 'readwrite');
-    
+
+    const tx = db.transaction(['videos', 'subtitles', 'analyses', 'notes', 'chatHistory'], 'readwrite');
+
     await Promise.all([
       tx.objectStore('videos').delete(videoId),
       tx.objectStore('subtitles').delete(videoId),
       ...analysesToDelete.map(a => tx.objectStore('analyses').delete(a.id)),
       tx.objectStore('notes').delete(videoId),
+      tx.objectStore('chatHistory').delete(videoId),
     ]);
 
     return tx.done;

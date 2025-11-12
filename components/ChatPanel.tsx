@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Video, Subtitles, ChatMessage } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Video, Subtitles, ChatMessage, ChatHistory } from '../types';
 import { generateChatResponse } from '../services/geminiService';
 import { Content } from '@google/genai';
 import MarkdownRenderer from './MarkdownRenderer';
 import { useLanguage } from '../contexts/LanguageContext';
 import { extractFramesFromVideo } from '../utils/helpers';
+import { chatDB } from '../services/dbService';
 
 interface ChatPanelProps {
   video: Video;
@@ -21,49 +22,53 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ video, subtitles, screenshotDataU
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
-  const isInitializedRef = useRef(false);
   const { t, language } = useLanguage();
 
-  const storageKey = useMemo(() => `chatHistory-${video.id}`, [video.id]);
-
-  // Reset history when video changes
+  // Load chat history when video changes
   useEffect(() => {
-    isInitializedRef.current = false;
+    let isMounted = true;
 
-    if (typeof window === 'undefined') {
-      setHistory([]);
-      isInitializedRef.current = true;
-      return;
-    }
-
-    try {
-      const storedHistory = window.localStorage.getItem(storageKey);
-
-      if (storedHistory) {
-        const parsedHistory = JSON.parse(storedHistory) as ChatMessage[];
-        setHistory(parsedHistory);
-      } else {
-        setHistory([]);
+    const loadChatHistory = async () => {
+      try {
+        const chatHistory = await chatDB.get(video.id);
+        if (isMounted) {
+          setHistory(chatHistory?.messages || []);
+        }
+      } catch (error) {
+        console.error('Failed to load chat history:', error);
+        if (isMounted) {
+          setHistory([]);
+        }
       }
-    } catch (error) {
-      console.error('Failed to load chat history from storage:', error);
-      setHistory([]);
-    } finally {
-      isInitializedRef.current = true;
-    }
-  }, [storageKey]);
+    };
 
+    loadChatHistory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [video.id]);
+
+  // Save chat history when it changes
   useEffect(() => {
-    if (!isInitializedRef.current || typeof window === 'undefined') {
-      return;
-    }
+    const saveChatHistory = async () => {
+      if (history.length === 0) return;
 
-    try {
-      window.localStorage.setItem(storageKey, JSON.stringify(history));
-    } catch (error) {
-      console.error('Failed to persist chat history:', error);
-    }
-  }, [history, storageKey]);
+      try {
+        const chatHistory: ChatHistory = {
+          id: video.id,
+          videoId: video.id,
+          messages: history,
+          updatedAt: new Date().toISOString(),
+        };
+        await chatDB.put(chatHistory);
+      } catch (error) {
+        console.error('Failed to save chat history:', error);
+      }
+    };
+
+    saveChatHistory();
+  }, [history, video.id]);
 
   useEffect(() => {
     if (messagesContainerRef.current) {

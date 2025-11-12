@@ -43,6 +43,13 @@ export interface ChatMessage {
   image?: string; // base64 data URL
 }
 
+export interface ChatHistory {
+  id: string; // same as videoId
+  videoId: string;
+  messages: ChatMessage[];
+  updatedAt: string;
+}
+
 export interface Note {
   id: string; // same as videoId
   videoId: string;
