@@ -26,6 +26,17 @@ export const zh: Translations = {
   browseFile: "或浏览本地文件",
   welcomeBoxTitle: "立即获得核心见解",
   welcomeBoxText: "上传本地视频。我们将为您生成摘要、关键信息和主题。所有处理都在您的机器上本地完成，以确保完全的隐私。",
+  welcomeBadge: "AI 驱动分析",
+  welcomeHeroTitle: "将您的数据转化为",
+  welcomeHeroTitleLine2: "可执行的洞察",
+  welcomeHeroDescription: "Insightseel 帮助团队通过 AI 驱动的分析做出数据驱动的决策。上传您的数据，获得即时洞察，见证业务增长。",
+  welcomeTryButton: "试用 Insightseel",
+  welcomeImportFolderButton: "导入文件夹",
+  welcomeWorkspaceTitle: "Insightseel 工作区",
+  welcomeWaitingForVideos: "等待视频...",
+  welcomeVideosInQueue: (count: number) => `${count} 个视频在队列中`,
+  welcomeDropVideosHere: "将视频拖放到此处",
+  welcomeVideosAnalyzedAuto: "视频将自动分析",
 
   // Video Detail
   insights: "见解",

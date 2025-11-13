@@ -5,7 +5,7 @@ const Footer: React.FC = () => {
   const { t } = useLanguage();
 
   return (
-    <footer className="w-full py-4 px-6 mt-8">
+    <footer className="w-full py-8 px-6 bg-gradient-to-b from-slate-50 to-white border-t border-slate-200/50">
       <div className="max-w-[1800px] mx-auto">
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-sm text-slate-500">
           <div className="flex items-center gap-2">

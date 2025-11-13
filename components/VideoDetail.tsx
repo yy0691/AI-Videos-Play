@@ -659,13 +659,28 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
                 </div>
               </>
             ) : (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                    <div className="w-16 h-16 mb-4 text-slate-400">
+                <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                    <div className="w-8 h-8 mb-4 text-slate-400">
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
                          </svg>
                     </div>
-                    <p className="text-sm text-slate-500">{t('noSubtitles')}</p>
+                    <p className="text-sm text-slate-500 mb-4">{t('noSubtitles')}</p>
+                    <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md">
+                        <button
+                            onClick={() => subtitleInputRef.current?.click()}
+                            className="flex-1 h-10 px-4 text-sm font-semibold rounded-lg bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 transition shadow-sm"
+                        >
+                            {t('importSubtitles')}
+                        </button>
+                        <button
+                            onClick={handleGenerateSubtitles}
+                            disabled={isGeneratingSubtitles}
+                            className="flex-1 h-10 px-4 text-sm font-semibold rounded-lg bg-slate-900 text-slate-50 hover:bg-slate-800 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {t('generateWithAI')}
+                        </button>
+                    </div>
                 </div>
             )}
           </div>

@@ -18,6 +18,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
   const systemModel = import.meta.env.VITE_MODEL;
   const systemBaseUrl = import.meta.env.VITE_BASE_URL;
   const proxyAvailable = import.meta.env.VITE_USE_PROXY === 'true';
+  const systemDeepgramKey = import.meta.env.VITE_DEEPGRAM_API_KEY;
 
   // Determine if the currently displayed settings are from the system fallback
   const isModelSystemInUse = !!systemModel && currentSettings.model === systemModel;
@@ -33,10 +34,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onSave, onClose
     if (!!systemBaseUrl && settings.baseUrl === systemBaseUrl) {
       displaySettings.baseUrl = '';
     }
+    // Security: Never display system environment variable values in the UI
+    if (!!systemDeepgramKey) {
+      // If user's key matches system key, clear it to prevent exposing the system key
+      // This prevents users from accidentally saving and displaying the system key
+      if (settings.deepgramApiKey === systemDeepgramKey) {
+        displaySettings.deepgramApiKey = '';
+      }
+    }
 
     setCurrentSettings(displaySettings);
     setTestState({ status: 'idle', message: '' }); // Reset on open
-  }, [settings, systemBaseUrl, systemModel]);
+  }, [settings, systemBaseUrl, systemModel, systemDeepgramKey]);
 
   const handleSettingChange = (update: Partial<APISettings>) => {
     setCurrentSettings(prev => ({ ...prev, ...update }));

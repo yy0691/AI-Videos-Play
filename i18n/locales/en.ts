@@ -24,6 +24,17 @@ export const en = {
   browseFile: "Or Browse Local File",
   welcomeBoxTitle: "Jump to top insights immediately",
   welcomeBoxText: "Upload a local video. We'll generate summaries, key info, and topics for you. All processing is done locally on your machine for complete privacy.",
+  welcomeBadge: "AI-powered analytics",
+  welcomeHeroTitle: "Transform Your Data Into",
+  welcomeHeroTitleLine2: "Actionable Insights",
+  welcomeHeroDescription: "Insightseel helps teams make data-driven decisions with AI-powered analytics. Upload your data, get instant insights, and watch your business grow.",
+  welcomeTryButton: "Try insightseel",
+  welcomeImportFolderButton: "Import Folder",
+  welcomeWorkspaceTitle: "Insightseel Workspace",
+  welcomeWaitingForVideos: "Waiting for videos...",
+  welcomeVideosInQueue: (count: number) => `${count} videos in queue`,
+  welcomeDropVideosHere: "Drop videos here",
+  welcomeVideosAnalyzedAuto: "Videos will be analyzed automatically",
 
   // Video Detail
   insights: "Insights",
