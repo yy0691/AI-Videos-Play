@@ -12,9 +12,10 @@ export default defineConfig({
   server: {
     port: 5000,
     host: '0.0.0.0',
-    strictPort: true, // Don't try other ports if 5000 is busy
-    allowedHosts: true as const,
-    hmr: {
+    strictPort: true,
+    // @ts-ignore
+    allowedHosts: process.env.TEMPO === "true" ? true : true,
+    hmr: process.env.TEMPO === "true" ? false : {
       clientPort: 5000,
     },
     headers: {

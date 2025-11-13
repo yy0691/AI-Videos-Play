@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 .env
 .vercel
+
+# Tempo-specific
+**/tempobook/dynamic/
+**/tempobook/storyboards/
