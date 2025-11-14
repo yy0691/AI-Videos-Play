@@ -6,7 +6,7 @@
 interface VideoSource {
   url: string;
   type: string;
-  provider: 'youtube' | 'vimeo' | 'html5' | 'other';
+  provider: 'youtube' | 'vimeo' | 'html5' | 'bilibili' | 'other';
   title?: string;
   duration?: number;
 }
@@ -47,25 +47,85 @@ function detectVimeoVideo(): VideoSource | null {
   return null;
 }
 
+function detectBilibiliVideo(): VideoSource | null {
+  // Bilibili video URL patterns: /video/BVxxxxx or b23.tv/xxxxx
+  const bvMatch = window.location.pathname.match(/\/video\/(BV[a-zA-Z0-9]+)/);
+  const b23Match = window.location.pathname.match(/\/video\/([a-zA-Z0-9]+)/);
+  
+  if (bvMatch || b23Match) {
+    const videoId = bvMatch ? bvMatch[1] : (b23Match ? b23Match[1] : null);
+    if (videoId) {
+      return {
+        url: window.location.href,
+        type: 'video/mp4',
+        provider: 'bilibili',
+        title: document.title,
+        duration: undefined,
+      };
+    }
+  }
+  
+  // Also check for video element on Bilibili pages
+  if (window.location.hostname.includes('bilibili.com')) {
+    const videoElement = document.querySelector('video');
+    if (videoElement) {
+      return {
+        url: window.location.href,
+        type: 'video/mp4',
+        provider: 'bilibili',
+        title: document.title,
+        duration: videoElement.duration || undefined,
+      };
+    }
+  }
+  
+  return null;
+}
+
 function detectHTML5Videos(): VideoSource[] {
   const videos: VideoSource[] = [];
   const videoElements = document.querySelectorAll('video');
 
   videoElements.forEach((videoEl) => {
+    // Check for source elements first
     const sources = videoEl.querySelectorAll('source');
-    sources.forEach((source) => {
-      const url = source.src;
-      const type = source.type || 'video/mp4';
-      if (url) {
+    if (sources.length > 0) {
+      sources.forEach((source) => {
+        const url = source.src;
+        const type = source.type || 'video/mp4';
+        if (url) {
+          videos.push({
+            url,
+            type,
+            provider: 'html5',
+            title: videoEl.title || document.title,
+            duration: videoEl.duration || undefined,
+          });
+        }
+      });
+    } else {
+      // If no source elements, check if video has src attribute directly
+      const videoSrc = (videoEl as HTMLVideoElement).src;
+      if (videoSrc) {
         videos.push({
-          url,
-          type,
+          url: videoSrc,
+          type: videoEl.type || 'video/mp4',
+          provider: 'html5',
+          title: videoEl.title || document.title,
+          duration: videoEl.duration || undefined,
+        });
+      } else {
+        // If no src, but video element exists, use current page URL
+        // This handles cases like Bilibili where video is loaded dynamically
+        videos.push({
+          url: window.location.href,
+          type: 'video/mp4',
           provider: 'html5',
           title: videoEl.title || document.title,
           duration: videoEl.duration || undefined,
         });
       }
-    });
+    }
   });
 
   return videos;
@@ -102,6 +162,13 @@ function detectIframeVideos(): VideoSource[] {
 function getPageVideoInfo(): PageVideoInfo {
   const videos: VideoSource[] = [];
   let hasVideo = false;
+
+  // Detect Bilibili (check first as it's a common platform)
+  const biliVideo = detectBilibiliVideo();
+  if (biliVideo) {
+    videos.push(biliVideo);
+    hasVideo = true;
+  }
 
   // Detect YouTube
   const ytVideo = detectYouTubeVideo();

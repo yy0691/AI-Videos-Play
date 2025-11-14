@@ -1,7 +1,7 @@
 export interface VideoSource {
   url: string;
   type: string;
-  provider: 'youtube' | 'vimeo' | 'html5' | 'other';
+  provider: 'youtube' | 'vimeo' | 'html5' | 'bilibili' | 'other';
   title?: string;
   duration?: number;
 }

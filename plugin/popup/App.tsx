@@ -31,9 +31,41 @@ export default function App() {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab.id) throw new Error('No active tab');
 
-      const response = await chrome.tabs.sendMessage(tab.id, {
-        action: 'detectVideo',
-      });
+      // Check if the tab URL is accessible (not chrome:// or extension pages)
+      if (tab.url && (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('edge://'))) {
+        setError('This page is not accessible. Please open a regular web page.');
+        setLoading(false);
+        return;
+      }
+
+      // Try to send message to content script
+      let response;
+      try {
+        response = await chrome.tabs.sendMessage(tab.id, {
+          action: 'detectVideo',
+        });
+      } catch (sendError) {
+        // If content script is not available, try to inject it
+        if (sendError.message?.includes('Receiving end does not exist') || sendError.message?.includes('Could not establish connection')) {
+          // Try to inject content script
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              files: ['content.js'],
+            });
+            // Wait a bit for script to initialize
+            await new Promise(resolve => setTimeout(resolve, 100));
+            // Try again
+            response = await chrome.tabs.sendMessage(tab.id, {
+              action: 'detectVideo',
+            });
+          } catch (injectError) {
+            throw new Error('Unable to access this page. Please refresh the page and try again.');
+          }
+        } else {
+          throw sendError;
+        }
+      }
 
       setVideoInfo(response);
 
