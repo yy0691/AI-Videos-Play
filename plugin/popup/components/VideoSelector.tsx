@@ -1,6 +1,22 @@
 import React from 'react';
-import { Play, Youtube, Video, Globe, Subtitles } from 'lucide-react';
+import { Youtube, Video, Globe, Subtitles } from 'lucide-react';
 import type { VideoSource } from '../../shared/types';
+
+// 统一的播放图标组件
+const PlayIcon: React.FC<{ className?: string }> = ({ className = "w-4 h-4" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" />
+  </svg>
+);
 
 interface VideoSelectorProps {
   videos: VideoSource[];
@@ -10,7 +26,7 @@ interface VideoSelectorProps {
 const providerIcons: Record<string, React.ReactNode> = {
   youtube: <Youtube className="w-4 h-4" />,
   vimeo: <Video className="w-4 h-4" />,
-  html5: <Play className="w-4 h-4" />,
+  html5: <PlayIcon className="w-4 h-4" />,
   other: <Globe className="w-4 h-4" />,
 };
 
@@ -67,7 +83,7 @@ export default function VideoSelector({ videos, onSelectVideo }: VideoSelectorPr
               ) : null}
             </div>
             <div className="text-emerald-600 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Play className="w-4 h-4" />
+              <PlayIcon className="w-4 h-4" />
             </div>
           </div>
         </button>
