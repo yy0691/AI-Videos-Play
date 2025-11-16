@@ -126,13 +126,121 @@ export async function generateSubtitlesWithDeepgram(
     throw new Error('Deepgram API key not configured. Please add VITE_DEEPGRAM_API_KEY to environment variables or configure in settings.');
   }
 
-  onProgress?.(10);
+  const fileSizeMB = file.size / (1024 * 1024);
+  const VERCEL_SIZE_LIMIT_MB = 4; // Vercel has 4.5MB limit, use 4MB for safety
 
   console.log('[Deepgram] Transcribing with Nova-2 model...', {
-    fileSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+    fileSize: `${fileSizeMB.toFixed(2)}MB`,
     fileType: file.type,
-    language
+    language,
+    willUseStorage: fileSizeMB > VERCEL_SIZE_LIMIT_MB
   });
+
+  // For large files (> 4MB), upload to storage and use URL mode
+  if (fileSizeMB > VERCEL_SIZE_LIMIT_MB) {
+    console.log(`[Deepgram] File too large for direct transfer (${fileSizeMB.toFixed(2)}MB > ${VERCEL_SIZE_LIMIT_MB}MB)`);
+    console.log('[Deepgram] Uploading to object storage first...');
+    
+    try {
+      // Upload to Supabase Storage
+      onProgress?.(5);
+      const { uploadFileToStorageWithProgress } = await import('../utils/uploadToStorage');
+      
+      // Convert Blob to File if necessary
+      const fileToUpload = file instanceof File ? file : new File([file], 'video.mp4', { type: file.type || 'video/mp4' });
+      
+      const uploadResult = await uploadFileToStorageWithProgress(fileToUpload, {
+        onProgress: (uploadProgress) => {
+          // Map upload progress (0-100%) to 5-50% of total progress
+          onProgress?.(5 + uploadProgress * 0.45);
+        },
+      });
+
+      onProgress?.(50);
+      console.log('[Deepgram] File uploaded, using URL mode:', uploadResult.fileUrl);
+
+      // Use Deepgram URL mode
+      const params = new URLSearchParams({
+        model: 'nova-2',
+        smart_format: 'true',
+        punctuate: 'true',
+        paragraphs: 'false',
+        utterances: 'false',
+      });
+
+      if (language && language !== 'auto') {
+        params.append('language', language);
+      }
+
+      // Add url_mode flag to proxy
+      params.append('url_mode', 'true');
+
+      const proxyUrl = `/api/deepgram-proxy?${params.toString()}`;
+
+      console.log('[Deepgram] Sending URL request through proxy:', {
+        url: proxyUrl,
+        fileUrl: uploadResult.fileUrl,
+        hasAuth: !!apiKey,
+        keySource: settings.deepgramApiKey ? 'user' : 'system'
+      });
+
+      const response = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: {
+          'X-Deepgram-API-Key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: uploadResult.fileUrl }),
+      });
+
+      onProgress?.(90);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Deepgram] API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorBody: errorText,
+        });
+        throw new Error(`Deepgram API error (${response.status}): ${errorText || response.statusText}`);
+      }
+
+      const result: DeepgramResponse = await response.json();
+      onProgress?.(100);
+
+      console.log('[Deepgram] Transcription complete (URL mode)');
+      return result;
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[Deepgram] URL mode failed:', errorMessage);
+      
+      // Check if it's a storage error
+      if (errorMessage.includes('not authenticated') || errorMessage.includes('not configured')) {
+        throw new Error(
+          '无法上传大文件到存储服务\n\n' +
+          '对于大文件（> 4MB），需要先上传到对象存储，但：\n' +
+          errorMessage + '\n\n' +
+          '解决方案：\n' +
+          '1. 登录账户（Supabase Storage 需要认证）\n' +
+          '2. 确保 Supabase 已正确配置\n' +
+          '3. 或使用更小的视频文件（< 4MB）\n\n' +
+          'Failed to upload large file to storage\n\n' +
+          'For large files (> 4MB), we need to upload to object storage first, but:\n' +
+          errorMessage + '\n\n' +
+          'Solutions:\n' +
+          '1. Log in to your account (Supabase Storage requires authentication)\n' +
+          '2. Ensure Supabase is properly configured\n' +
+          '3. Or use a smaller video file (< 4MB)'
+        );
+      }
+      
+      throw error;
+    }
+  }
+
+  // For small files (≤ 4MB), use direct upload through proxy
+  onProgress?.(10);
 
   // Build API URL with parameters
   const params = new URLSearchParams({
@@ -154,7 +262,7 @@ export async function generateSubtitlesWithDeepgram(
   // Build proxy URL with query parameters
   const proxyUrl = `/api/deepgram-proxy?${params.toString()}`;
 
-  console.log('[Deepgram] Sending request through proxy:', {
+  console.log('[Deepgram] Sending request through proxy (direct mode):', {
     url: proxyUrl,
     contentType,
     hasAuth: !!apiKey,
@@ -187,7 +295,7 @@ export async function generateSubtitlesWithDeepgram(
   const result: DeepgramResponse = await response.json();
   onProgress?.(100);
 
-  console.log('[Deepgram] Transcription complete');
+  console.log('[Deepgram] Transcription complete (direct mode)');
 
   return result;
 }

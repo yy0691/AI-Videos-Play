@@ -71,7 +71,13 @@ export default async function handler(
 
     // Handle POST request for transcription
     // Get query parameters from request
-    const { model = 'nova-2', language, smart_format = 'true', punctuate = 'true' } = req.query;
+    const { 
+      model = 'nova-2', 
+      language, 
+      smart_format = 'true', 
+      punctuate = 'true',
+      url_mode = 'false'
+    } = req.query;
     
     // Build Deepgram API URL with parameters
     const params = new URLSearchParams({
@@ -88,10 +94,62 @@ export default async function handler(
 
     const deepgramUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
 
+    // Check if this is URL mode (for large files)
+    const isUrlMode = url_mode === 'true';
+
+    if (isUrlMode) {
+      // URL mode: Forward JSON request with file URL
+      console.log('[Deepgram Proxy] URL mode - forwarding file URL to Deepgram');
+      
+      // Parse JSON body to get the URL
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+      
+      if (!body.url) {
+        return res.status(400).json({ error: 'Missing url in request body for URL mode' });
+      }
+
+      console.log('[Deepgram Proxy] Forwarding URL request:', {
+        url: deepgramUrl,
+        fileUrl: body.url,
+        hasApiKey: !!apiKey,
+        keySource: req.headers['x-deepgram-api-key'] ? 'user' : 'system'
+      });
+
+      const response = await fetch(deepgramUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: body.url }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Deepgram Proxy] API error (URL mode):', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        return res.status(response.status).json({ 
+          error: `Deepgram API error (${response.status}): ${response.statusText}`,
+          details: errorText
+        });
+      }
+
+      const data = await response.json();
+      
+      // Set CORS headers
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      
+      return res.status(200).json(data);
+    }
+
+    // Direct file upload mode (for small files)
     // Get content type from request
     const contentType = req.headers['content-type'] || 'video/mp4';
 
-    console.log('[Deepgram Proxy] Forwarding request:', {
+    console.log('[Deepgram Proxy] Direct mode - forwarding file content:', {
       url: deepgramUrl,
       contentType,
       hasApiKey: !!apiKey,
@@ -111,7 +169,7 @@ export default async function handler(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[Deepgram Proxy] API error:', {
+      console.error('[Deepgram Proxy] API error (direct mode):', {
         status: response.status,
         statusText: response.statusText,
         error: errorText
