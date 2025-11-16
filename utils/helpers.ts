@@ -115,7 +115,7 @@ export const extractAudioToBase64 = async (
         onProgress?.(20);
         
         // Determine optimal bitrate based on video duration
-        const fileSizeMB = videoFile.size / (1024 * 1024);
+        // fileSizeMB is already defined above (line 73)
         let audioBitsPerSecond: number;
 
         // Lower bitrate for longer videos to keep audio size manageable
