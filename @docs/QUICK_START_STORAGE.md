@@ -120,3 +120,4 @@ console.log('✅ Upload successful:', result.fileUrl);
 - [对象存储架构说明](./OBJECT_STORAGE_UPLOAD.md)（如果存在）
 - [Vercel 环境变量配置](./VERCEL_ENV_SETUP.md)
 
+

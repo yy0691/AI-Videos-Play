@@ -1,0 +1,10 @@
+# Ignore other lock files to avoid conflicts
+package-lock.json
+yarn.lock
+
+# Ignore development files
+node_modules
+.DS_Store
+*.log
+
+
