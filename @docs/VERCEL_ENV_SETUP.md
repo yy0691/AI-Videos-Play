@@ -8,9 +8,16 @@
 
 ### 1. Deepgram（字幕生成）
 
+**客户端环境变量（必需）：**
 ```
 Name: VITE_DEEPGRAM_API_KEY
 Value: 你的 Deepgram API Key
+```
+
+**服务器端环境变量（可选，作为备用）：**
+```
+Name: DEEPGRAM_API_KEY
+Value: 你的 Deepgram API Key（与上面相同）
 ```
 
 **获取方式：**
@@ -19,6 +26,11 @@ Value: 你的 Deepgram API Key
 3. 创建 API Key
 
 **用途：** 系统默认的语音转文字服务，用户无需配置即可生成字幕
+
+**重要说明：**
+- `VITE_DEEPGRAM_API_KEY` 是必需的，用于客户端代码
+- `DEEPGRAM_API_KEY` 是可选的，仅作为服务器端备用（客户端会自动通过请求头传递密钥）
+- 如果只设置 `VITE_DEEPGRAM_API_KEY`，系统也能正常工作（客户端会通过代理传递密钥）
 
 ---
 

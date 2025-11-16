@@ -28,16 +28,18 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Get API key from environment or request header
-  // Priority: Request header (user's key) > Environment variable (system key)
-  // Support both DEEPGRAM_API_KEY (server-side) and VITE_DEEPGRAM_API_KEY (for compatibility)
+  // Get API key from request header or environment variable
+  // Priority: Request header (from client) > Environment variable (server-side fallback)
+  // Note: VITE_ prefixed env vars are NOT available in serverless functions
+  // Client should pass the key via X-Deepgram-API-Key header (from VITE_DEEPGRAM_API_KEY or user settings)
   const apiKey = (req.headers['x-deepgram-api-key'] as string) || 
-                 process.env.DEEPGRAM_API_KEY || 
-                 process.env.VITE_DEEPGRAM_API_KEY;
+                 process.env.DEEPGRAM_API_KEY;
   
   if (!apiKey) {
     return res.status(500).json({ 
-      error: 'Deepgram API key not configured. Please set DEEPGRAM_API_KEY or VITE_DEEPGRAM_API_KEY environment variable, or provide X-Deepgram-API-Key header.' 
+      error: 'Deepgram API key not configured. ' +
+             'Please provide X-Deepgram-API-Key header (client will send it automatically), ' +
+             'or set DEEPGRAM_API_KEY environment variable in Vercel (server-side fallback).' 
     });
   }
 
