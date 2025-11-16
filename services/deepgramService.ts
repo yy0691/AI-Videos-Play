@@ -72,42 +72,35 @@ export async function isDeepgramAvailable(): Promise<boolean> {
     keyPrefix: apiKey.substring(0, 8) + '...'
   });
 
-  // Test API key by making a simple validation request
+  // Test API key by making a validation request through proxy (to avoid CORS)
   try {
-    const testResponse = await fetch('https://api.deepgram.com/v1/projects', {
+    const testResponse = await fetch('/api/deepgram-proxy', {
       method: 'GET',
       headers: {
-        'Authorization': `Token ${apiKey}`,
+        'X-Deepgram-API-Key': apiKey,
       },
     });
 
     if (testResponse.ok) {
-      console.log('[Deepgram] ✅ API Key is valid and working');
-      return true;
+      const result = await testResponse.json();
+      if (result.valid) {
+        console.log('[Deepgram] ✅ API Key is valid and working');
+        return true;
+      } else {
+        console.warn('[Deepgram] ⚠️ API Key validation failed:', result);
+        return false;
+      }
     } else {
-      const errorText = await testResponse.text().catch(() => 'Unknown error');
+      const errorData = await testResponse.json().catch(() => ({ error: 'Unknown error' }));
       console.warn('[Deepgram] ⚠️ API Key validation failed:', {
         status: testResponse.status,
         statusText: testResponse.statusText,
-        error: errorText.substring(0, 200)
+        error: errorData.error || errorData
       });
       return false;
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const isCorsError = errorMessage.includes('CORS') || 
-                       errorMessage.includes('Access-Control-Allow-Origin') ||
-                       errorMessage.includes('Failed to fetch');
-    
-    if (isCorsError) {
-      console.warn('[Deepgram] ⚠️ CORS error detected (API key exists, but browser cannot validate):', {
-        error: errorMessage,
-        note: 'Deepgram API does not support CORS from browser. The API key will be used directly for transcription requests.'
-      });
-      // CORS error but key exists - allow usage (transcription requests may work even if validation fails)
-      return true;
-    }
-    
     console.warn('[Deepgram] ⚠️ Failed to validate API Key (network error, but key exists):', {
       error: errorMessage
     });
@@ -158,18 +151,21 @@ export async function generateSubtitlesWithDeepgram(
   // Determine content type - Deepgram accepts video files directly
   const contentType = file.type || 'video/mp4';
 
-  console.log('[Deepgram] Sending request with:', {
-    url: `https://api.deepgram.com/v1/listen?${params.toString()}`,
+  // Build proxy URL with query parameters
+  const proxyUrl = `/api/deepgram-proxy?${params.toString()}`;
+
+  console.log('[Deepgram] Sending request through proxy:', {
+    url: proxyUrl,
     contentType,
     hasAuth: !!apiKey,
     keySource: settings.deepgramApiKey ? 'user' : 'system'
   });
 
-  // Call Deepgram API
-  const response = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
+  // Call Deepgram API through proxy (to avoid CORS issues)
+  const response = await fetch(proxyUrl, {
     method: 'POST',
     headers: {
-      'Authorization': `Token ${apiKey}`,
+      'X-Deepgram-API-Key': apiKey,
       'Content-Type': contentType,
     },
     body: file,

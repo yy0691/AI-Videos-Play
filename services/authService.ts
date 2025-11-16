@@ -18,6 +18,10 @@ export interface Profile {
   avatar_url?: string;
   created_at: string;
   updated_at: string;
+  // Optional reference to Supabase auth.users (NULL for Linux.do-only profiles)
+  auth_user_id?: string;
+  // Flag to indicate if this is a Linux.do-only profile (no Supabase auth account)
+  is_linuxdo_only?: boolean;
   // Linux.do OAuth fields
   linuxdo_user_id?: string;
   linuxdo_username?: string;
@@ -173,6 +177,147 @@ export const authService = {
       .single();
 
     if (error) throw error;
+    return data;
+  },
+
+  /**
+   * Find or create profile by Linux.do user ID
+   * This allows Linux.do users to register independently without Supabase account
+   * Creates a new profile with an independent UUID if one doesn't exist
+   */
+  async findOrCreateProfileByLinuxDoId(linuxdoUserId: string, linuxdoUserInfo: any): Promise<Profile | null> {
+    if (!supabase) return null;
+
+    try {
+      // First, try to find existing profile by linuxdo_user_id
+      const { data: existingProfile, error: findError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('linuxdo_user_id', linuxdoUserId)
+        .maybeSingle();
+
+      if (findError && findError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error('Error finding profile by Linux.do ID:', findError);
+        return null;
+      }
+
+      if (existingProfile) {
+        // Profile exists, update it with latest info
+        const avatarUrl = linuxdoUserInfo.avatar_url || 
+                         linuxdoUserInfo.avatar || 
+                         linuxdoUserInfo.logo || 
+                         linuxdoUserInfo.picture ||
+                         undefined;
+
+        const updates: Partial<Profile> = {
+          linuxdo_username: linuxdoUserInfo.username || linuxdoUserInfo.name || existingProfile.linuxdo_username,
+          linuxdo_avatar_url: avatarUrl || existingProfile.linuxdo_avatar_url,
+          linuxdo_user_data: linuxdoUserInfo,
+        };
+
+        // Remove undefined values
+        Object.keys(updates).forEach(key => {
+          if (updates[key as keyof typeof updates] === undefined) {
+            delete updates[key as keyof typeof updates];
+          }
+        });
+
+        const { data: updatedProfile, error: updateError } = await supabase
+          .from('profiles')
+          .update(updates)
+          .eq('id', existingProfile.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error('Error updating profile:', updateError);
+          return existingProfile; // Return existing profile even if update fails
+        }
+
+        return updatedProfile;
+      }
+
+      // Profile doesn't exist - create a new independent profile for Linux.do user
+      // Use the RPC function to create the profile (bypasses RLS)
+      const avatarUrl = linuxdoUserInfo.avatar_url || 
+                       linuxdoUserInfo.avatar || 
+                       linuxdoUserInfo.logo || 
+                       linuxdoUserInfo.picture ||
+                       undefined;
+
+      const email = linuxdoUserInfo.email || `linuxdo_${linuxdoUserId}@linux.do`;
+      const username = linuxdoUserInfo.username || linuxdoUserInfo.name || `Linux.do User ${linuxdoUserId}`;
+
+      // Try to use the RPC function first (if migration has been applied)
+      const { data: rpcProfile, error: rpcError } = await supabase
+        .rpc('create_linuxdo_profile', {
+          p_linuxdo_user_id: linuxdoUserId,
+          p_email: email,
+          p_username: username,
+          p_avatar_url: avatarUrl || null,
+          p_user_data: linuxdoUserInfo || null,
+        });
+
+      if (!rpcError && rpcProfile) {
+        console.log('Created new Linux.do-only profile via RPC:', rpcProfile);
+        return rpcProfile as Profile;
+      }
+
+      // Fallback: try direct insert (if RPC function doesn't exist or fails)
+      // This will work if the migration has been applied and RLS allows anon access
+      const newProfileId = crypto.randomUUID();
+      const { data: createdProfile, error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: newProfileId,
+          email: email,
+          full_name: username,
+          avatar_url: avatarUrl,
+          linuxdo_user_id: linuxdoUserId,
+          linuxdo_username: username,
+          linuxdo_avatar_url: avatarUrl,
+          linuxdo_user_data: linuxdoUserInfo,
+          auth_user_id: null, // No Supabase auth user for Linux.do-only accounts
+          is_linuxdo_only: true, // Mark as Linux.do-only profile
+        } as any)
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Error creating Linux.do profile:', insertError);
+        console.error('RPC error (if tried):', rpcError);
+        // If both methods fail, return null and let the caller handle it (store in localStorage)
+        return null;
+      }
+
+      console.log('Created new Linux.do-only profile:', createdProfile);
+      return createdProfile;
+    } catch (error) {
+      console.error('Error in findOrCreateProfileByLinuxDoId:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Get profile by Linux.do user ID
+   */
+  async getProfileByLinuxDoId(linuxdoUserId: string): Promise<Profile | null> {
+    if (!supabase) return null;
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('linuxdo_user_id', linuxdoUserId)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null; // No profile found
+      }
+      console.error('Error fetching profile by Linux.do ID:', error);
+      return null;
+    }
+
     return data;
   },
 

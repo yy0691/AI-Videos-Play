@@ -80,12 +80,32 @@ async function generateContentViaProxy(
         payload.systemInstruction = systemInstruction;
     }
 
+    // Check request size before sending (Vercel has 4.5MB limit)
+    const requestBody = JSON.stringify(payload);
+    const requestSizeBytes = new Blob([requestBody]).size;
+    const requestSizeMB = requestSizeBytes / (1024 * 1024);
+    const MAX_REQUEST_SIZE_MB = 4.0; // Leave 0.5MB buffer for safety
+
+    if (requestSizeMB > MAX_REQUEST_SIZE_MB) {
+        console.error(`Request too large: ${requestSizeMB.toFixed(2)}MB (limit: ${MAX_REQUEST_SIZE_MB}MB)`);
+        throw new Error(
+            `请求体过大 (${requestSizeMB.toFixed(2)}MB)。` +
+            `Vercel 服务器函数限制为 4.5MB。` +
+            `请使用更短的视频片段或压缩音频。\n\n` +
+            `Request too large (${requestSizeMB.toFixed(2)}MB). ` +
+            `Vercel serverless functions have a 4.5MB limit. ` +
+            `Please use a shorter video segment or compress the audio.`
+        );
+    }
+
+    console.log(`[Proxy] Request size: ${requestSizeMB.toFixed(2)}MB`);
+
     const response = await fetch('/api/proxy', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: requestBody,
     });
 
     if (!response.ok) {
@@ -121,12 +141,32 @@ async function generateContentStreamViaProxy(
         payload.systemInstruction = systemInstruction;
     }
 
+    // Check request size before sending (Vercel has 4.5MB limit)
+    const requestBody = JSON.stringify(payload);
+    const requestSizeBytes = new Blob([requestBody]).size;
+    const requestSizeMB = requestSizeBytes / (1024 * 1024);
+    const MAX_REQUEST_SIZE_MB = 4.0; // Leave 0.5MB buffer for safety
+
+    if (requestSizeMB > MAX_REQUEST_SIZE_MB) {
+        console.error(`Request too large: ${requestSizeMB.toFixed(2)}MB (limit: ${MAX_REQUEST_SIZE_MB}MB)`);
+        throw new Error(
+            `请求体过大 (${requestSizeMB.toFixed(2)}MB)。` +
+            `Vercel 服务器函数限制为 4.5MB。` +
+            `请使用更短的视频片段或压缩音频。\n\n` +
+            `Request too large (${requestSizeMB.toFixed(2)}MB). ` +
+            `Vercel serverless functions have a 4.5MB limit. ` +
+            `Please use a shorter video segment or compress the audio.`
+        );
+    }
+
+    console.log(`[Proxy] Request size: ${requestSizeMB.toFixed(2)}MB`);
+
     const response = await fetch('/api/proxy', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: requestBody,
     });
 
     if (!response.ok) {
@@ -440,9 +480,25 @@ export async function generateSubtitlesStreaming(
       throw new Error(`Audio extraction failed: extracted audio is too small (${audioSizeMB.toFixed(2)}MB). The video might be corrupted or have no audio track.`);
     }
     
-    // Warn if audio is very large (may cause proxy timeout)
-    if (audioSizeMB > 5) {
-      console.warn(`Extracted audio is ${audioSizeMB.toFixed(1)}MB, which may cause proxy timeout. Consider using a shorter video segment.`);
+    // Estimate request size: base64 increases size by ~33%, plus JSON overhead (~0.1MB)
+    const estimatedRequestSizeMB = audioSizeMB * 1.33 + 0.1;
+    const MAX_REQUEST_SIZE_MB = 4.0; // Leave 0.5MB buffer for Vercel's 4.5MB limit
+    
+    if (estimatedRequestSizeMB > MAX_REQUEST_SIZE_MB) {
+      const errorMsg = 
+        `音频文件过大 (${audioSizeMB.toFixed(2)}MB)，预计请求大小 ${estimatedRequestSizeMB.toFixed(2)}MB 超过限制 (${MAX_REQUEST_SIZE_MB}MB)。` +
+        `Vercel 服务器函数限制为 4.5MB。` +
+        `请使用更短的视频片段（建议不超过20分钟）或降低音频质量。\n\n` +
+        `Audio file too large (${audioSizeMB.toFixed(2)}MB), estimated request size ${estimatedRequestSizeMB.toFixed(2)}MB exceeds limit (${MAX_REQUEST_SIZE_MB}MB). ` +
+        `Vercel serverless functions have a 4.5MB limit. ` +
+        `Please use a shorter video segment (recommended: <20 minutes) or reduce audio quality.`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+    
+    // Warn if audio is large (may cause proxy timeout or approach limit)
+    if (audioSizeMB > 3) {
+      console.warn(`Extracted audio is ${audioSizeMB.toFixed(1)}MB (estimated request: ${estimatedRequestSizeMB.toFixed(2)}MB), which may cause issues. Consider using a shorter video segment.`);
     }
     
     onProgress?.(80, 'Generating subtitles...');

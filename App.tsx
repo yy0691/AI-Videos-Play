@@ -333,25 +333,33 @@ const AppContent: React.FC<{
             image: userInfo.image,
           });
 
-          // Save Linux.do information to profile
+          // Extract Linux.do user ID
+          const linuxdoUserId = userInfo.id?.toString() || userInfo.user_id?.toString();
+          if (!linuxdoUserId) {
+            throw new Error('Linux.do user ID not found in user info');
+          }
+
+          // Extract avatar URL from user info (try multiple possible field names)
+          const avatarUrl = userInfo.avatar_url || 
+                           userInfo.avatar || 
+                           userInfo.logo || 
+                           userInfo.picture || 
+                           userInfo.avatarUrl ||
+                           userInfo.profile_image_url ||
+                           userInfo.profile_picture ||
+                           userInfo.image ||
+                           userInfo.photo ||
+                           userInfo.thumbnail ||
+                           undefined;
+
+          // Try to find or create profile by Linux.do user ID (supports independent Linux.do registration)
+          let profile: import('./services/authService').Profile | null = null;
+          
           if (currentUser) {
             // User is already logged in to Supabase, update their profile
             try {
-              // Extract avatar URL from user info (try multiple possible field names)
-              const avatarUrl = userInfo.avatar_url || 
-                               userInfo.avatar || 
-                               userInfo.logo || 
-                               userInfo.picture || 
-                               userInfo.avatarUrl ||
-                               userInfo.profile_image_url ||
-                               userInfo.profile_picture ||
-                               userInfo.image ||
-                               userInfo.photo ||
-                               userInfo.thumbnail ||
-                               undefined;
-
               const profileUpdates: Partial<import('./services/authService').Profile> = {
-                linuxdo_user_id: userInfo.id?.toString() || userInfo.user_id?.toString() || undefined,
+                linuxdo_user_id: linuxdoUserId,
                 linuxdo_username: userInfo.username || userInfo.name || undefined,
                 linuxdo_avatar_url: avatarUrl,
                 linuxdo_access_token: tokenData.access_token,
@@ -369,30 +377,56 @@ const AppContent: React.FC<{
               });
 
               await authService.updateProfile(currentUser.id, profileUpdates);
-              console.log('Linux.do information saved to profile');
+              profile = await authService.getProfile(currentUser.id);
+              console.log('Linux.do information saved to profile (existing Supabase user)');
             } catch (profileError) {
               console.error('Error saving Linux.do info to profile:', profileError);
               // Continue anyway, don't fail the OAuth flow
             }
           } else {
-            // User is not logged in to Supabase
-            // Store in local storage for later use
+            // User is not logged in to Supabase - try to find existing profile by Linux.do ID
+            // This supports independent Linux.do registration
             try {
-              // Extract avatar URL from user info
-              const avatarUrl = userInfo.avatar_url || 
-                               userInfo.avatar || 
-                               userInfo.logo || 
-                               userInfo.picture || 
-                               userInfo.avatarUrl ||
-                               userInfo.profile_image_url ||
-                               userInfo.profile_picture ||
-                               userInfo.image ||
-                               userInfo.photo ||
-                               userInfo.thumbnail ||
-                               undefined;
+              profile = await authService.findOrCreateProfileByLinuxDoId(linuxdoUserId, {
+                ...userInfo,
+                access_token: tokenData.access_token,
+                token_expires_at: tokenData.expires_in 
+                  ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
+                  : undefined,
+              });
 
+              if (profile) {
+                // Found existing profile, update with latest token info
+                const profileUpdates: Partial<import('./services/authService').Profile> = {
+                  linuxdo_access_token: tokenData.access_token,
+                  linuxdo_token_expires_at: tokenData.expires_in 
+                    ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
+                    : undefined,
+                };
+
+                await authService.updateProfile(profile.id, profileUpdates);
+                console.log('Linux.do information updated in existing profile');
+              } else {
+                // No profile found - store in local storage for later
+                // User can create a Supabase account later and link it
+                const linuxDoData = {
+                  user_id: linuxdoUserId,
+                  username: userInfo.username || userInfo.name,
+                  avatar_url: avatarUrl,
+                  access_token: tokenData.access_token,
+                  token_expires_at: tokenData.expires_in 
+                    ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
+                    : undefined,
+                  user_data: userInfo,
+                };
+                localStorage.setItem('linuxdo_oauth_data', JSON.stringify(linuxDoData));
+                console.log('Linux.do information saved to local storage (no Supabase account, will create profile when user signs up)');
+              }
+            } catch (error) {
+              console.error('Error handling Linux.do profile:', error);
+              // Fallback to local storage
               const linuxDoData = {
-                user_id: userInfo.id?.toString() || userInfo.user_id?.toString(),
+                user_id: linuxdoUserId,
                 username: userInfo.username || userInfo.name,
                 avatar_url: avatarUrl,
                 access_token: tokenData.access_token,
@@ -402,9 +436,6 @@ const AppContent: React.FC<{
                 user_data: userInfo,
               };
               localStorage.setItem('linuxdo_oauth_data', JSON.stringify(linuxDoData));
-              console.log('Linux.do information saved to local storage (user not logged in)');
-            } catch (storageError) {
-              console.error('Error saving Linux.do info to local storage:', storageError);
             }
           }
 

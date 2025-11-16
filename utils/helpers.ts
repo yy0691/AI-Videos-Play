@@ -70,11 +70,38 @@ export const extractAudioToBase64 = async (
         onProgress?.(10);
         
         const videoDurationMin = video.duration / 60;
-        const MAX_EXTRACT_DURATION_MIN = 30; // Maximum 30 minutes for subtitle generation
+        const fileSizeMB = videoFile.size / (1024 * 1024);
+        
+        // Dynamically adjust max extraction duration based on file size
+        // Goal: keep extracted audio under ~3MB (to stay under 4MB after base64 encoding)
+        // For 8kbps: 3MB ≈ 50 minutes, but we need to account for WebM overhead
+        // For 10kbps: 3MB ≈ 40 minutes
+        // For 12kbps: 3MB ≈ 33 minutes
+        // For 16kbps: 3MB ≈ 25 minutes
+        let MAX_EXTRACT_DURATION_MIN = 30; // Default: 30 minutes
+        
+        // For very large files, reduce extraction duration to keep audio size manageable
+        if (fileSizeMB > 500) {
+          MAX_EXTRACT_DURATION_MIN = 15; // Large files: 15 minutes max
+        } else if (fileSizeMB > 200) {
+          MAX_EXTRACT_DURATION_MIN = 20; // Medium-large files: 20 minutes max
+        } else if (fileSizeMB > 100) {
+          MAX_EXTRACT_DURATION_MIN = 25; // Medium files: 25 minutes max
+        }
+        
+        // For very long videos, further reduce if needed
+        if (videoDurationMin > 60) {
+          MAX_EXTRACT_DURATION_MIN = Math.min(MAX_EXTRACT_DURATION_MIN, 20);
+        } else if (videoDurationMin > 90) {
+          MAX_EXTRACT_DURATION_MIN = Math.min(MAX_EXTRACT_DURATION_MIN, 15);
+        }
 
         // For very long videos, warn user and limit extraction
         if (videoDurationMin > MAX_EXTRACT_DURATION_MIN) {
-          console.warn(`Video is ${videoDurationMin.toFixed(1)} minutes long. Will extract first ${MAX_EXTRACT_DURATION_MIN} minutes only.`);
+          console.warn(
+            `Video is ${videoDurationMin.toFixed(1)} minutes long (${fileSizeMB.toFixed(1)}MB). ` +
+            `Will extract first ${MAX_EXTRACT_DURATION_MIN} minutes only to avoid request size limits.`
+          );
         }
         
         // Create audio context with lower sample rate for better compression
