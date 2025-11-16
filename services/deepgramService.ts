@@ -133,105 +133,152 @@ export async function generateSubtitlesWithDeepgram(
     fileSize: `${fileSizeMB.toFixed(2)}MB`,
     fileType: file.type,
     language,
-    willUseStorage: fileSizeMB > VERCEL_SIZE_LIMIT_MB
+    willNeedCompression: fileSizeMB > VERCEL_SIZE_LIMIT_MB
   });
 
-  // For large files (> 4MB), upload to storage and use URL mode
+  // For large files (> 4MB), compress audio first
   if (fileSizeMB > VERCEL_SIZE_LIMIT_MB) {
     console.log(`[Deepgram] File too large for direct transfer (${fileSizeMB.toFixed(2)}MB > ${VERCEL_SIZE_LIMIT_MB}MB)`);
-    console.log('[Deepgram] Uploading to object storage first...');
+    console.log('[Deepgram] Compressing audio to reduce size...');
     
     try {
-      // Upload to Supabase Storage
+      // Import audio extraction service
+      const { extractAndCompressAudio, isAudioExtractionSupported } = await import('./audioExtractionService');
+      
+      // Check if audio extraction is supported
+      if (!isAudioExtractionSupported()) {
+        throw new Error('Audio extraction not supported in this browser. Please use Chrome, Edge, or Firefox.');
+      }
+
       onProgress?.(5);
-      const { uploadFileToStorageWithProgress } = await import('../utils/uploadToStorage');
       
-      // Convert Blob to File if necessary
-      const fileToUpload = file instanceof File ? file : new File([file], 'video.mp4', { type: file.type || 'video/mp4' });
-      
-      const uploadResult = await uploadFileToStorageWithProgress(fileToUpload, {
-        onProgress: (uploadProgress) => {
-          // Map upload progress (0-100%) to 5-50% of total progress
-          onProgress?.(5 + uploadProgress * 0.45);
-        },
-      });
+      // Extract and compress audio
+      const { audioBlob, originalSize, compressedSize, compressionRatio } = await extractAndCompressAudio(
+        file,
+        {
+          onProgress: (progress, stage) => {
+            // Map extraction progress (0-100%) to 5-50% of total progress
+            onProgress?.(5 + progress * 0.45);
+            console.log(`[Deepgram] ${stage} (${progress.toFixed(0)}%)`);
+          },
+          targetBitrate: 32000, // 32 kbps - good quality for speech
+        }
+      );
 
       onProgress?.(50);
-      console.log('[Deepgram] File uploaded, using URL mode:', uploadResult.fileUrl);
-
-      // Use Deepgram URL mode
-      const params = new URLSearchParams({
-        model: 'nova-2',
-        smart_format: 'true',
-        punctuate: 'true',
-        paragraphs: 'false',
-        utterances: 'false',
+      
+      const compressedSizeMB = compressedSize / (1024 * 1024);
+      console.log('[Deepgram] Audio compressed successfully:', {
+        originalSize: `${fileSizeMB.toFixed(2)}MB`,
+        compressedSize: `${compressedSizeMB.toFixed(2)}MB`,
+        compressionRatio: `${compressionRatio.toFixed(1)}x`,
+        savedSpace: `${((1 - compressedSize / originalSize) * 100).toFixed(1)}%`
       });
 
-      if (language && language !== 'auto') {
-        params.append('language', language);
+      // Check if compressed audio is still too large
+      if (compressedSizeMB > VERCEL_SIZE_LIMIT_MB) {
+        console.warn(`[Deepgram] Compressed audio still too large (${compressedSizeMB.toFixed(2)}MB > ${VERCEL_SIZE_LIMIT_MB}MB)`);
+        console.log('[Deepgram] Attempting to upload to storage (requires Supabase configuration)...');
+        
+        // Try storage upload as fallback
+        try {
+          const { uploadFileToStorageWithProgress } = await import('../utils/uploadToStorage');
+          
+          // Convert Blob to File
+          const fileToUpload = new File([audioBlob], 'compressed-audio.wav', { type: 'audio/wav' });
+          
+          const uploadResult = await uploadFileToStorageWithProgress(fileToUpload, {
+            onProgress: (uploadProgress) => {
+              onProgress?.(50 + uploadProgress * 0.3);
+            },
+          });
+
+          onProgress?.(80);
+          console.log('[Deepgram] Audio uploaded, using URL mode:', uploadResult.fileUrl);
+
+          // Use Deepgram URL mode
+          const params = new URLSearchParams({
+            model: 'nova-2',
+            smart_format: 'true',
+            punctuate: 'true',
+            paragraphs: 'false',
+            utterances: 'false',
+          });
+
+          if (language && language !== 'auto') {
+            params.append('language', language);
+          }
+
+          params.append('url_mode', 'true');
+          const proxyUrl = `/api/deepgram-proxy?${params.toString()}`;
+
+          const response = await fetch(proxyUrl, {
+            method: 'POST',
+            headers: {
+              'X-Deepgram-API-Key': apiKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ url: uploadResult.fileUrl }),
+          });
+
+          onProgress?.(90);
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Deepgram API error (${response.status}): ${errorText || response.statusText}`);
+          }
+
+          const result: DeepgramResponse = await response.json();
+          onProgress?.(100);
+
+          console.log('[Deepgram] Transcription complete (URL mode with compressed audio)');
+          return result;
+        } catch (uploadError) {
+          const uploadErrorMessage = uploadError instanceof Error ? uploadError.message : String(uploadError);
+          console.error('[Deepgram] Storage upload failed:', uploadErrorMessage);
+          
+          throw new Error(
+            `压缩后的音频仍然太大 (${compressedSizeMB.toFixed(2)}MB)\n\n` +
+            '尝试上传到存储服务失败：\n' +
+            uploadErrorMessage + '\n\n' +
+            '建议解决方案：\n' +
+            '1. 配置 Supabase Storage（设置 SUPABASE_SERVICE_ROLE_KEY）\n' +
+            '2. 使用时长更短的视频片段\n' +
+            '3. 联系技术支持\n\n' +
+            `Compressed audio still too large (${compressedSizeMB.toFixed(2)}MB)\n\n` +
+            'Failed to upload to storage:\n' +
+            uploadErrorMessage + '\n\n' +
+            'Suggested solutions:\n' +
+            '1. Configure Supabase Storage (set SUPABASE_SERVICE_ROLE_KEY)\n' +
+            '2. Use a shorter video segment\n' +
+            '3. Contact technical support'
+          );
+        }
       }
 
-      // Add url_mode flag to proxy
-      params.append('url_mode', 'true');
-
-      const proxyUrl = `/api/deepgram-proxy?${params.toString()}`;
-
-      console.log('[Deepgram] Sending URL request through proxy:', {
-        url: proxyUrl,
-        fileUrl: uploadResult.fileUrl,
-        hasAuth: !!apiKey,
-        keySource: settings.deepgramApiKey ? 'user' : 'system'
-      });
-
-      const response = await fetch(proxyUrl, {
-        method: 'POST',
-        headers: {
-          'X-Deepgram-API-Key': apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: uploadResult.fileUrl }),
-      });
-
-      onProgress?.(90);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[Deepgram] API error:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorBody: errorText,
-        });
-        throw new Error(`Deepgram API error (${response.status}): ${errorText || response.statusText}`);
-      }
-
-      const result: DeepgramResponse = await response.json();
-      onProgress?.(100);
-
-      console.log('[Deepgram] Transcription complete (URL mode)');
-      return result;
-
+      // Use compressed audio directly
+      console.log('[Deepgram] Using compressed audio for transcription (direct mode)');
+      file = audioBlob;
+      
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[Deepgram] URL mode failed:', errorMessage);
+      console.error('[Deepgram] Audio compression failed:', errorMessage);
       
-      // Check if it's a storage error
-      if (errorMessage.includes('not authenticated') || errorMessage.includes('not configured')) {
+      // If compression failed, throw descriptive error
+      if (errorMessage.includes('not supported')) {
         throw new Error(
-          '无法上传大文件到存储服务\n\n' +
-          '对于大文件（> 4MB），需要先上传到对象存储，但：\n' +
-          errorMessage + '\n\n' +
+          '音频压缩不支持\n\n' +
+          '您的浏览器不支持音频提取功能。\n\n' +
           '解决方案：\n' +
-          '1. 登录账户（Supabase Storage 需要认证）\n' +
-          '2. 确保 Supabase 已正确配置\n' +
-          '3. 或使用更小的视频文件（< 4MB）\n\n' +
-          'Failed to upload large file to storage\n\n' +
-          'For large files (> 4MB), we need to upload to object storage first, but:\n' +
-          errorMessage + '\n\n' +
+          '1. 使用 Chrome、Edge 或 Firefox 浏览器\n' +
+          '2. 配置 Supabase Storage 以处理大文件\n' +
+          '3. 使用更小的视频文件（< 4MB）\n\n' +
+          'Audio compression not supported\n\n' +
+          'Your browser does not support audio extraction.\n\n' +
           'Solutions:\n' +
-          '1. Log in to your account (Supabase Storage requires authentication)\n' +
-          '2. Ensure Supabase is properly configured\n' +
-          '3. Or use a smaller video file (< 4MB)'
+          '1. Use Chrome, Edge, or Firefox browser\n' +
+          '2. Configure Supabase Storage for large files\n' +
+          '3. Use a smaller video file (< 4MB)'
         );
       }
       

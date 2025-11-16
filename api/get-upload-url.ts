@@ -33,7 +33,16 @@ export default async function handler(
 
     if (!supabaseServiceKey) {
       return res.status(500).json({ 
-        error: 'Supabase service role key not configured. Please set SUPABASE_SERVICE_ROLE_KEY environment variable.' 
+        error: 'Supabase service role key not configured. Please set SUPABASE_SERVICE_ROLE_KEY environment variable.',
+        suggestion: 'audio_compression',
+        details: {
+          message: 'For large files, the system can compress audio on the client side to avoid requiring storage configuration.',
+          alternatives: [
+            'Client-side audio compression (automatic)',
+            'Use shorter video segments',
+            'Configure Supabase Storage'
+          ]
+        }
       });
     }
 

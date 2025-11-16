@@ -61,7 +61,13 @@ export async function generateSubtitlesIntelligent(
       console.log('[Router] Attempting Deepgram (high quality)...');
       onProgress?.(0, 'Using Deepgram (high quality)...');
 
-      const result = await generateSubtitlesWithDeepgram(file, language, onProgress);
+      // Adapt onProgress: generateSubtitlesWithDeepgram expects (progress: number) => void
+      // but RouterOptions provides (progress: number, stage: string) => void
+      const adaptedOnProgress = onProgress 
+        ? (progress: number) => onProgress(progress, 'Transcribing with Deepgram...')
+        : undefined;
+
+      const result = await generateSubtitlesWithDeepgram(file, language, adaptedOnProgress);
       const srtContent = deepgramToSrt(result);
 
       const processingTimeMs = Date.now() - startTime;
@@ -119,8 +125,13 @@ export async function generateSubtitlesIntelligent(
       console.log('[Router] Falling back to Gemini direct processing...');
       onProgress?.(0, 'Using Gemini AI (fallback)...');
 
+      // Convert Blob to File if necessary (generateSubtitlesStreaming requires File)
+      const fileToProcess = file instanceof File 
+        ? file 
+        : new File([file], 'video.mp4', { type: file.type || 'video/mp4' });
+
       const srtContent = await generateSubtitlesStreaming(
-        file,
+        fileToProcess,
         prompt || 'Generate accurate subtitles with precise timestamps.',
         onProgress
       );
@@ -254,11 +265,16 @@ async function processFileInChunks(
   const segmentDuration = 600; // 10 minutes
   onProgress?.(5, 'Splitting video into chunks...');
 
+  // Convert Blob to File if necessary (splitVideoIntoSegments requires File)
+  const fileToSplit = file instanceof File 
+    ? file 
+    : new File([file], 'video.mp4', { type: file.type || 'video/mp4' });
+
   const segments = await splitVideoIntoSegments(
-    file,
+    fileToSplit,
     segmentDuration,
-    (splitProgress) => {
-      onProgress?.(5 + splitProgress * 0.2, 'Splitting video...');
+    (splitProgress, stage) => {
+      onProgress?.(5 + splitProgress * 0.2, stage || 'Splitting video...');
     }
   );
 
