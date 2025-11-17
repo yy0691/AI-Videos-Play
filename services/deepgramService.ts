@@ -152,8 +152,28 @@ export async function generateSubtitlesWithDeepgram(
 
       onProgress?.(5);
       
+      // 🎯 智能压缩策略：根据文件大小选择合适的比特率
+      // 对于超大文件，使用更激进的压缩
+      let targetBitrate = 32000; // 默认 32 kbps
+      let maxDuration: number | undefined = undefined;
+      
+      if (fileSizeMB > 200) {
+        // 超大文件（>200MB）：使用 8kbps + 限制时长为30分钟
+        targetBitrate = 8000;
+        maxDuration = 30 * 60; // 30 minutes
+        console.log('[Deepgram] 🔧 Using aggressive compression: 8kbps, max 30 minutes');
+      } else if (fileSizeMB > 100) {
+        // 大文件（>100MB）：使用 12kbps
+        targetBitrate = 12000;
+        console.log('[Deepgram] 🔧 Using medium compression: 12kbps');
+      } else if (fileSizeMB > 50) {
+        // 中等文件（>50MB）：使用 16kbps
+        targetBitrate = 16000;
+        console.log('[Deepgram] 🔧 Using light compression: 16kbps');
+      }
+      
       // Extract and compress audio
-      const { audioBlob, originalSize, compressedSize, compressionRatio } = await extractAndCompressAudio(
+      const { audioBlob, originalSize, compressedSize, compressionRatio, duration } = await extractAndCompressAudio(
         file,
         {
           onProgress: (progress, stage) => {
@@ -161,7 +181,8 @@ export async function generateSubtitlesWithDeepgram(
             onProgress?.(5 + progress * 0.45);
             console.log(`[Deepgram] ${stage} (${progress.toFixed(0)}%)`);
           },
-          targetBitrate: 32000, // 32 kbps - good quality for speech
+          targetBitrate,
+          maxDurationSeconds: maxDuration,
         }
       );
 
@@ -172,7 +193,8 @@ export async function generateSubtitlesWithDeepgram(
         originalSize: `${fileSizeMB.toFixed(2)}MB`,
         compressedSize: `${compressedSizeMB.toFixed(2)}MB`,
         compressionRatio: `${compressionRatio.toFixed(1)}x`,
-        savedSpace: `${((1 - compressedSize / originalSize) * 100).toFixed(1)}%`
+        savedSpace: `${((1 - compressedSize / originalSize) * 100).toFixed(1)}%`,
+        processedDuration: maxDuration ? `${(maxDuration / 60).toFixed(1)} minutes` : `${(duration / 60).toFixed(1)} minutes (full)`,
       });
 
       // Check if compressed audio is still too large
@@ -237,6 +259,52 @@ export async function generateSubtitlesWithDeepgram(
           const uploadErrorMessage = uploadError instanceof Error ? uploadError.message : String(uploadError);
           console.error('[Deepgram] Storage upload failed:', uploadErrorMessage);
           
+          // 📌 重要提示：提供更友好的错误信息
+          const isSupabaseConfigError = uploadErrorMessage.includes('SUPABASE_SERVICE_ROLE_KEY') 
+            || uploadErrorMessage.includes('not configured')
+            || uploadErrorMessage.includes('500');
+          
+          if (isSupabaseConfigError) {
+            throw new Error(
+              `⚠️ 需要配置 Supabase Storage 以处理大文件\n\n` +
+              `当前情况：\n` +
+              `• 原始文件：${fileSizeMB.toFixed(2)}MB\n` +
+              `• 压缩后：${compressedSizeMB.toFixed(2)}MB（${maxDuration ? `前${maxDuration/60}分钟` : '全部'}）\n` +
+              `• 压缩比率：${compressionRatio.toFixed(1)}x\n` +
+              `• Vercel限制：${VERCEL_SIZE_LIMIT_MB}MB\n\n` +
+              `🔧 解决方案（3选1）：\n\n` +
+              `【推荐】方案1：配置 Supabase Storage\n` +
+              `  在 Vercel 环境变量中添加：\n` +
+              `  • SUPABASE_SERVICE_ROLE_KEY=你的密钥\n` +
+              `  详见：https://github.com/你的项目/docs/SUPABASE_STORAGE_SETUP.md\n\n` +
+              `方案2：使用更短的视频\n` +
+              `  当前已处理${maxDuration ? `前${maxDuration/60}分钟` : '全部内容'}，\n` +
+              `  可以尝试剪辑为10-15分钟的片段\n\n` +
+              `方案3：本地处理\n` +
+              `  下载视频到本地，使用本地工具处理\n\n` +
+              `💡 临时绕过方法：\n` +
+              `  系统已自动使用8kbps超低比特率压缩，\n` +
+              `  如果仍然失败，请尝试更短的视频片段。\n\n` +
+              `⚠️ Supabase Storage configuration required for large files\n\n` +
+              `Current status:\n` +
+              `• Original file: ${fileSizeMB.toFixed(2)}MB\n` +
+              `• Compressed: ${compressedSizeMB.toFixed(2)}MB (${maxDuration ? `first ${maxDuration/60} min` : 'full'})\n` +
+              `• Compression ratio: ${compressionRatio.toFixed(1)}x\n` +
+              `• Vercel limit: ${VERCEL_SIZE_LIMIT_MB}MB\n\n` +
+              `🔧 Solutions (choose one):\n\n` +
+              `[Recommended] Option 1: Configure Supabase Storage\n` +
+              `  Add to Vercel environment variables:\n` +
+              `  • SUPABASE_SERVICE_ROLE_KEY=your-key\n` +
+              `  See: https://github.com/your-project/docs/SUPABASE_STORAGE_SETUP.md\n\n` +
+              `Option 2: Use shorter videos\n` +
+              `  Currently processed ${maxDuration ? `first ${maxDuration/60} min` : 'full content'},\n` +
+              `  try 10-15 minute segments\n\n` +
+              `Option 3: Process locally\n` +
+              `  Download video and use local tools\n`
+            );
+          }
+          
+          // 其他错误
           throw new Error(
             `压缩后的音频仍然太大 (${compressedSizeMB.toFixed(2)}MB)\n\n` +
             '尝试上传到存储服务失败：\n' +
