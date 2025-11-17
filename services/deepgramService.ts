@@ -152,24 +152,31 @@ export async function generateSubtitlesWithDeepgram(
 
       onProgress?.(5);
       
-      // 🎯 智能压缩策略：根据文件大小选择合适的比特率
+      // 🎯 智能压缩策略：根据文件大小选择合适的比特率和时长
       // 对于超大文件，使用更激进的压缩
       let targetBitrate = 32000; // 默认 32 kbps
       let maxDuration: number | undefined = undefined;
       
-      if (fileSizeMB > 200) {
-        // 超大文件（>200MB）：使用 8kbps + 限制时长为30分钟
+      if (fileSizeMB > 300) {
+        // 超超大文件（>300MB）：使用 8kbps + 限制时长为10分钟
         targetBitrate = 8000;
-        maxDuration = 30 * 60; // 30 minutes
-        console.log('[Deepgram] 🔧 Using aggressive compression: 8kbps, max 30 minutes');
+        maxDuration = 10 * 60; // 10 minutes
+        console.log('[Deepgram] 🔧 Using ultra-aggressive compression: 8kbps, max 10 minutes');
+      } else if (fileSizeMB > 200) {
+        // 超大文件（>200MB）：使用 8kbps + 限制时长为15分钟
+        targetBitrate = 8000;
+        maxDuration = 15 * 60; // 15 minutes
+        console.log('[Deepgram] 🔧 Using aggressive compression: 8kbps, max 15 minutes');
       } else if (fileSizeMB > 100) {
-        // 大文件（>100MB）：使用 12kbps
+        // 大文件（>100MB）：使用 12kbps + 限制时长为20分钟
         targetBitrate = 12000;
-        console.log('[Deepgram] 🔧 Using medium compression: 12kbps');
+        maxDuration = 20 * 60; // 20 minutes
+        console.log('[Deepgram] 🔧 Using medium compression: 12kbps, max 20 minutes');
       } else if (fileSizeMB > 50) {
-        // 中等文件（>50MB）：使用 16kbps
+        // 中等文件（>50MB）：使用 16kbps + 限制时长为25分钟
         targetBitrate = 16000;
-        console.log('[Deepgram] 🔧 Using light compression: 16kbps');
+        maxDuration = 25 * 60; // 25 minutes
+        console.log('[Deepgram] 🔧 Using light compression: 16kbps, max 25 minutes');
       }
       
       // Extract and compress audio

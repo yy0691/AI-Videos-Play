@@ -84,11 +84,31 @@ export async function extractAndCompressAudio(
       Math.floor(duration * sampleRate)
     );
 
+    // 🎯 智能采样率选择：根据目标比特率动态调整
+    // 对于语音识别，采样率可以很低
+    let outputSampleRate = 16000; // 默认16kHz
+    if (targetBitrate <= 8000) {
+      // 8kbps: 使用8kHz采样率
+      outputSampleRate = 8000;
+    } else if (targetBitrate <= 12000) {
+      // 12kbps: 使用11kHz采样率
+      outputSampleRate = 11025;
+    } else if (targetBitrate <= 16000) {
+      // 16kbps: 使用12kHz采样率
+      outputSampleRate = 12000;
+    }
+    
+    console.log('[Audio Extraction] Using sample rate:', {
+      targetBitrate: `${targetBitrate / 1000}kbps`,
+      outputSampleRate: `${outputSampleRate}Hz`,
+      estimatedBitrate: `${Math.round(outputSampleRate * 1 * 1 / 1000)}kbps (8-bit mono)`
+    });
+
     // Create offline context for rendering
     const offlineContext = new OfflineAudioContext({
       numberOfChannels: 1, // Mono for smaller size
       length: samplesToExtract,
-      sampleRate: 16000, // Lower sample rate for speech (16kHz is sufficient)
+      sampleRate: outputSampleRate, // 动态采样率
     });
 
     // Create buffer source
@@ -102,8 +122,10 @@ export async function extractAndCompressAudio(
 
     onProgress?.(70, 'Encoding audio...');
 
-    // Convert to WAV format (simple, lossless format that Deepgram accepts)
-    const wavBlob = await audioBufferToWav(renderedBuffer);
+    // Convert to WAV format (simple format that Deepgram accepts)
+    // 🎯 对于低比特率（<=8kbps），使用8-bit编码以获得更好的压缩
+    const use8Bit = targetBitrate <= 8000;
+    const wavBlob = await audioBufferToWav(renderedBuffer, use8Bit);
 
     onProgress?.(90, 'Finalizing...');
 
@@ -143,12 +165,14 @@ export async function extractAndCompressAudio(
 
 /**
  * Convert AudioBuffer to WAV Blob
+ * Uses 8-bit PCM for better compression (语音识别足够)
  */
-function audioBufferToWav(buffer: AudioBuffer): Blob {
+function audioBufferToWav(buffer: AudioBuffer, use8Bit: boolean = false): Blob {
   const numberOfChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
   const format = 1; // PCM
-  const bitDepth = 16;
+  // 🎯 使用8-bit位深度以获得更好的压缩（当采样率<=8kHz时）
+  const bitDepth = use8Bit ? 8 : 16;
 
   const bytesPerSample = bitDepth / 8;
   const blockAlign = numberOfChannels * bytesPerSample;
@@ -186,12 +210,25 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
 
   // Write audio data
   let offset = 44;
-  for (let i = 0; i < buffer.length; i++) {
-    for (let channel = 0; channel < numberOfChannels; channel++) {
-      const sample = Math.max(-1, Math.min(1, data[channel][i]));
-      const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-      view.setInt16(offset, int16, true);
-      offset += 2;
+  if (bitDepth === 8) {
+    // 8-bit unsigned PCM (0-255, 128 = silence)
+    for (let i = 0; i < buffer.length; i++) {
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, data[channel][i]));
+        const uint8 = Math.round((sample + 1) * 127.5); // Convert -1..1 to 0..255
+        view.setUint8(offset, uint8);
+        offset += 1;
+      }
+    }
+  } else {
+    // 16-bit signed PCM (-32768..32767, 0 = silence)
+    for (let i = 0; i < buffer.length; i++) {
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, data[channel][i]));
+        const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        view.setInt16(offset, int16, true);
+        offset += 2;
+      }
     }
   }
 
@@ -214,12 +251,27 @@ export function isAudioExtractionSupported(): boolean {
  */
 export function estimateCompressedSize(
   videoSizeMB: number,
-  videoDurationSeconds: number
+  videoDurationSeconds: number,
+  targetBitrate: number = 32000
 ): number {
-  // Rough estimation:
-  // 16kHz mono WAV ≈ 192 kbps (16000 Hz * 2 bytes * 1 channel * 8 bits/byte / 1000)
-  // = 24 KB/s = 1.44 MB/min
-  const estimatedSizeMB = (videoDurationSeconds / 60) * 1.44;
+  // Rough estimation based on target bitrate and duration
+  // 对于8kbps目标：使用8kHz 8-bit mono ≈ 64 kbps = 8 KB/s = 0.48 MB/min
+  // 对于12kbps目标：使用11kHz 16-bit mono ≈ 176 kbps = 22 KB/s = 1.32 MB/min
+  // 对于16kbps目标：使用12kHz 16-bit mono ≈ 192 kbps = 24 KB/s = 1.44 MB/min
+  // 对于32kbps目标：使用16kHz 16-bit mono ≈ 256 kbps = 32 KB/s = 1.92 MB/min
+  
+  let mbPerMinute: number;
+  if (targetBitrate <= 8000) {
+    mbPerMinute = 0.48; // 8kHz 8-bit mono
+  } else if (targetBitrate <= 12000) {
+    mbPerMinute = 1.32; // 11kHz 16-bit mono
+  } else if (targetBitrate <= 16000) {
+    mbPerMinute = 1.44; // 12kHz 16-bit mono
+  } else {
+    mbPerMinute = 1.92; // 16kHz 16-bit mono
+  }
+  
+  const estimatedSizeMB = (videoDurationSeconds / 60) * mbPerMinute;
   return Math.max(0.5, estimatedSizeMB); // Minimum 0.5 MB
 }
 
