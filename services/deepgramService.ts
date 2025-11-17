@@ -72,7 +72,27 @@ export async function isDeepgramAvailable(): Promise<boolean> {
     keyPrefix: apiKey.substring(0, 8) + '...'
   });
 
-  // Test API key by making a validation request through proxy (to avoid CORS)
+  // 🎯 优先尝试直接调用Deepgram API（绕过Vercel）
+  try {
+    console.log('[Deepgram] 🔄 Trying direct API call (bypassing Vercel)...');
+    const testResponse = await fetch('https://api.deepgram.com/v1/projects', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Token ${apiKey}`,
+      },
+    });
+
+    if (testResponse.ok) {
+      console.log('[Deepgram] ✅ Direct API call successful! Will use direct mode (no Vercel proxy)');
+      return true;
+    } else {
+      console.warn('[Deepgram] ⚠️ Direct API call failed, falling back to proxy mode');
+    }
+  } catch (directError) {
+    console.log('[Deepgram] ℹ️ Direct API call not available (CORS or network), will try proxy mode');
+  }
+
+  // 备选：通过Vercel proxy验证（旧方案）
   try {
     const testResponse = await fetch('/api/deepgram-proxy', {
       method: 'GET',
@@ -84,7 +104,7 @@ export async function isDeepgramAvailable(): Promise<boolean> {
     if (testResponse.ok) {
       const result = await testResponse.json();
       if (result.valid) {
-        console.log('[Deepgram] ✅ API Key is valid and working');
+        console.log('[Deepgram] ✅ API Key is valid (via proxy)');
         return true;
       } else {
         console.warn('[Deepgram] ⚠️ API Key validation failed:', result);
@@ -128,15 +148,74 @@ export async function generateSubtitlesWithDeepgram(
 
   const fileSizeMB = file.size / (1024 * 1024);
   const VERCEL_SIZE_LIMIT_MB = 4; // Vercel has 4.5MB limit, use 4MB for safety
+  const DEEPGRAM_DIRECT_LIMIT_MB = 2000; // Deepgram API supports up to 2GB for direct calls
 
   console.log('[Deepgram] Transcribing with Nova-2 model...', {
     fileSize: `${fileSizeMB.toFixed(2)}MB`,
     fileType: file.type,
     language,
-    willNeedCompression: fileSizeMB > VERCEL_SIZE_LIMIT_MB
+    willNeedCompression: fileSizeMB > VERCEL_SIZE_LIMIT_MB,
+    canUseDirectMode: fileSizeMB <= DEEPGRAM_DIRECT_LIMIT_MB
   });
 
-  // For large files (> 4MB), compress audio first
+  // 🎯 策略：
+  // 1. 如果文件 <= 4MB：先尝试直接调用，失败则通过proxy
+  // 2. 如果文件 4MB-2GB：尝试直接调用（绕过Vercel限制）
+  // 3. 如果文件 > 2GB：必须压缩
+  
+  // 尝试直接调用（如果文件不是太大）
+  const shouldTryDirectFirst = fileSizeMB <= DEEPGRAM_DIRECT_LIMIT_MB;
+  
+  if (shouldTryDirectFirst && fileSizeMB > VERCEL_SIZE_LIMIT_MB) {
+    console.log(`[Deepgram] 🚀 Large file (${fileSizeMB.toFixed(2)}MB), will try direct API call first (bypassing Vercel)`);
+    
+    // 先尝试直接调用，不压缩
+    try {
+      onProgress?.(10);
+      
+      const params = new URLSearchParams({
+        model: 'nova-2',
+        smart_format: 'true',
+        punctuate: 'true',
+        paragraphs: 'false',
+        utterances: 'false',
+      });
+
+      if (language && language !== 'auto') {
+        params.append('language', language);
+      }
+
+      const contentType = file.type || 'video/mp4';
+      const directUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
+      
+      console.log('[Deepgram] 📤 Uploading to Deepgram directly (no compression needed)...');
+      
+      const directResponse = await fetch(directUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${apiKey}`,
+          'Content-Type': contentType,
+        },
+        body: file,
+      });
+
+      onProgress?.(90);
+
+      if (directResponse.ok) {
+        const result: DeepgramResponse = await directResponse.json();
+        onProgress?.(100);
+        console.log('[Deepgram] ✅ Direct API call successful! No compression needed!');
+        return result;
+      } else {
+        const errorText = await directResponse.text();
+        console.warn('[Deepgram] ⚠️ Direct API call failed, will try compression:', errorText);
+      }
+    } catch (directError) {
+      console.log('[Deepgram] ℹ️ Direct API call failed, will try compression:', directError);
+    }
+  }
+
+  // For large files that need compression or if direct call failed
   if (fileSizeMB > VERCEL_SIZE_LIMIT_MB) {
     console.log(`[Deepgram] File too large for direct transfer (${fileSizeMB.toFixed(2)}MB > ${VERCEL_SIZE_LIMIT_MB}MB)`);
     console.log('[Deepgram] Compressing audio to reduce size...');
@@ -361,7 +440,7 @@ export async function generateSubtitlesWithDeepgram(
     }
   }
 
-  // For small files (≤ 4MB), use direct upload through proxy
+  // For small files (≤ 4MB), use direct upload
   onProgress?.(10);
 
   // Build API URL with parameters
@@ -379,19 +458,60 @@ export async function generateSubtitlesWithDeepgram(
   }
 
   // Determine content type - Deepgram accepts video files directly
-  const contentType = file.type || 'video/mp4';
+  const contentType = file.type || 'audio/wav';
 
+  // 🎯 方案1：尝试直接调用Deepgram API（绕过Vercel，无大小限制）
+  try {
+    console.log('[Deepgram] 🚀 Attempting direct API call (bypassing Vercel)...', {
+      fileSize: `${fileSizeMB.toFixed(2)}MB`,
+      contentType,
+      willBypassVercelLimit: true
+    });
+
+    const directUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
+    const directResponse = await fetch(directUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Token ${apiKey}`,
+        'Content-Type': contentType,
+      },
+      body: file,
+    });
+
+    onProgress?.(90);
+
+    if (directResponse.ok) {
+      const result: DeepgramResponse = await directResponse.json();
+      onProgress?.(100);
+      console.log('[Deepgram] ✅ Direct API call successful! (bypassed Vercel)');
+      return result;
+    } else {
+      const errorText = await directResponse.text();
+      console.warn('[Deepgram] ⚠️ Direct API call failed:', {
+        status: directResponse.status,
+        error: errorText
+      });
+      throw new Error(`Direct call failed: ${errorText}`);
+    }
+  } catch (directError) {
+    const directErrorMsg = directError instanceof Error ? directError.message : String(directError);
+    console.log('[Deepgram] ℹ️ Direct API call not available, falling back to proxy mode:', directErrorMsg);
+  }
+
+  // 🔄 方案2：降级到Vercel proxy模式（有4MB限制）
+  console.log('[Deepgram] 🔄 Using proxy mode (Vercel)');
+  
   // Build proxy URL with query parameters
   const proxyUrl = `/api/deepgram-proxy?${params.toString()}`;
 
-  console.log('[Deepgram] Sending request through proxy (direct mode):', {
+  console.log('[Deepgram] Sending request through proxy:', {
     url: proxyUrl,
     contentType,
     hasAuth: !!apiKey,
     keySource: settings.deepgramApiKey ? 'user' : 'system'
   });
 
-  // Call Deepgram API through proxy (to avoid CORS issues)
+  // Call Deepgram API through proxy
   const response = await fetch(proxyUrl, {
     method: 'POST',
     headers: {
@@ -417,7 +537,7 @@ export async function generateSubtitlesWithDeepgram(
   const result: DeepgramResponse = await response.json();
   onProgress?.(100);
 
-  console.log('[Deepgram] Transcription complete (direct mode)');
+  console.log('[Deepgram] Transcription complete (proxy mode)');
 
   return result;
 }
