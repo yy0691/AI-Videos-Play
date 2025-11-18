@@ -25,19 +25,70 @@ interface AnalyzeMetadataOptions {
 
 function inferHasAudioTrack(video: HTMLVideoElement): boolean {
   const anyVideo = video as any;
-
+  
+  // 🎯 多种方法检测音频轨道，提高可靠性
+  const detectionMethods: Array<{ name: string; result: boolean | null }> = [];
+  
+  // 方法1: Firefox 的 mozHasAudio
   if (typeof anyVideo.mozHasAudio === 'boolean') {
-    return anyVideo.mozHasAudio;
+    const result = anyVideo.mozHasAudio;
+    detectionMethods.push({ name: 'mozHasAudio', result });
+    if (result) {
+      console.log('[Audio Detection] ✅ Detected audio track via mozHasAudio');
+      return true;
+    }
   }
 
+  // 方法2: Chrome/Safari 的 webkitAudioDecodedByteCount
   if (typeof anyVideo.webkitAudioDecodedByteCount === 'number') {
-    return anyVideo.webkitAudioDecodedByteCount > 0;
+    const result = anyVideo.webkitAudioDecodedByteCount > 0;
+    detectionMethods.push({ name: 'webkitAudioDecodedByteCount', result });
+    if (result) {
+      console.log('[Audio Detection] ✅ Detected audio track via webkitAudioDecodedByteCount:', anyVideo.webkitAudioDecodedByteCount);
+      return true;
+    }
   }
 
+  // 方法3: 标准的 audioTracks API
   if (anyVideo.audioTracks && typeof anyVideo.audioTracks.length === 'number') {
-    return anyVideo.audioTracks.length > 0;
+    const result = anyVideo.audioTracks.length > 0;
+    detectionMethods.push({ name: 'audioTracks.length', result });
+    if (result) {
+      console.log('[Audio Detection] ✅ Detected audio track via audioTracks:', anyVideo.audioTracks.length);
+      return true;
+    }
+  }
+  
+  // 方法4: 检查 video 元素是否有 audio 属性（某些浏览器）
+  if (anyVideo.audio !== undefined) {
+    const result = Boolean(anyVideo.audio);
+    detectionMethods.push({ name: 'video.audio', result });
+    if (result) {
+      console.log('[Audio Detection] ✅ Detected audio track via video.audio');
+      return true;
+    }
   }
 
+  // 方法5: 检查是否有音频上下文（通过尝试创建）
+  // 注意：这个方法可能不准确，因为即使没有音频轨道也可能创建上下文
+  
+  // 记录所有检测方法的结果
+  if (detectionMethods.length > 0) {
+    console.log('[Audio Detection] Detection methods results:', detectionMethods);
+    // 如果所有方法都返回 false，才返回 false
+    const allFalse = detectionMethods.every(m => m.result === false);
+    if (allFalse) {
+      console.warn('[Audio Detection] ⚠️ All detection methods returned false. May be false negative.');
+      // 对于长视频，即使检测失败也假设有音频（可能是检测方法不支持）
+      return false; // 返回 false，但上层逻辑会根据视频长度强制使用音频管道
+    }
+  } else {
+    console.warn('[Audio Detection] ⚠️ No detection methods available. Assuming audio exists.');
+  }
+
+  // 🎯 默认返回 true：如果无法检测，假设有音频轨道
+  // 这样可以让音频分析来最终判断，而不是在这里就否定
+  console.log('[Audio Detection] ℹ️ No reliable detection method found. Defaulting to true (will verify via audio analysis).');
   return true;
 }
 
@@ -65,6 +116,7 @@ export async function analyzeVideoMetadata(
     });
 
     let hasAudioTrack = inferHasAudioTrack(video);
+    console.log('[Audio Analysis] Initial hasAudioTrack detection:', hasAudioTrack);
     let averageLoudness = 0;
     let peakLoudness = 0;
     let silenceRatio = 1;
@@ -193,8 +245,25 @@ export async function analyzeVideoMetadata(
         if (amplitudeSamples.length > 0) {
           // 如果peakLoudness > 0.02，肯定有音频
           // 或者如果averageLoudness > 0.005，也认为有音频
-          const hasSignificantAudio = peakLoudness > 0.02 || averageLoudness > 0.005;
-          hasAudioTrack = hasAudioTrack && hasSignificantAudio;
+          // 对于长视频，降低阈值以避免误判
+          const duration = metadata.duration || 0;
+          const peakThreshold = duration > 1800 ? 0.015 : 0.02; // 长视频降低阈值
+          const avgThreshold = duration > 1800 ? 0.003 : 0.005; // 长视频降低阈值
+          
+          const hasSignificantAudio = peakLoudness > peakThreshold || averageLoudness > avgThreshold;
+          
+          // 🎯 重要：如果初始检测到有音频轨道（inferHasAudioTrack），即使采样数据不理想也保持为true
+          // 因为可能是采样位置恰好是静音部分，而不是真的没有音频
+          if (hasAudioTrack) {
+            // 初始检测有音频，即使采样数据不理想也保持为true（可能是采样位置问题）
+            if (!hasSignificantAudio) {
+              console.warn('[Audio Analysis] ⚠️ Initial detection found audio track, but samples show low amplitude. May be sampling issue. Keeping hasAudioTrack=true.');
+            }
+            // 保持 hasAudioTrack = true
+          } else {
+            // 初始检测没有音频，但采样数据有信号，更新为true
+            hasAudioTrack = hasSignificantAudio;
+          }
           
           console.log('[Audio Analysis]', {
             samples: amplitudeSamples.length,
@@ -203,8 +272,14 @@ export async function analyzeVideoMetadata(
             silentThreshold: silentThreshold.toFixed(4),
             silenceRatio: (silenceRatio * 100).toFixed(1) + '%',
             hasAudioTrack,
-            samplePositions: samplePositions.length
+            samplePositions: samplePositions.length,
+            hasSignificantAudio,
+            peakThreshold: peakThreshold.toFixed(4),
+            avgThreshold: avgThreshold.toFixed(4)
           });
+        } else {
+          // 没有采样数据，保持初始检测结果
+          console.warn('[Audio Analysis] ⚠️ No samples collected. Keeping initial hasAudioTrack value:', hasAudioTrack);
         }
 
         video.pause();
@@ -212,11 +287,22 @@ export async function analyzeVideoMetadata(
 
       await audioContext.close();
     } catch (error) {
-      console.warn('Audio analysis failed, falling back to visual pipeline heuristics:', error);
-      hasAudioTrack = hasAudioTrack && false;
-      averageLoudness = 0;
-      peakLoudness = 0;
-      silenceRatio = 1;
+      console.warn('[Audio Analysis] Audio analysis failed:', error);
+      // 🎯 改进：如果音频分析失败，不要直接假设没有音频轨道
+      // 对于长视频，可能是分析超时或其他技术问题，而不是真的没有音频
+      // 保持 hasAudioTrack 的初始值（从 inferHasAudioTrack 获取），不要强制设为 false
+      // 这样可以让上层逻辑根据视频长度决定是否强制使用音频管道
+      if (amplitudeSamples.length === 0) {
+        // 只有在完全没有采样数据时才重置
+        console.warn('[Audio Analysis] No samples collected. Keeping initial hasAudioTrack value:', hasAudioTrack);
+        // 不强制设置 hasAudioTrack = false，保持初始检测结果
+      }
+      // 如果已经有采样数据，保持现有的 averageLoudness 和 peakLoudness
+      if (amplitudeSamples.length === 0) {
+        averageLoudness = 0;
+        peakLoudness = 0;
+        silenceRatio = 1;
+      }
     }
 
     const recommendedPipeline: PipelineRecommendation = (() => {

@@ -381,13 +381,24 @@ export async function generateResilientSubtitles(
 
   const pipelineRecommendation = metadata?.recommendedPipeline ?? 'audio';
   const hasAudioTrack = metadata?.hasAudioTrack ?? true; // Default to true if metadata unavailable
+  const videoDuration = metadata?.duration || video.duration || 0;
   
-  // 🎯 对于长视频（>30分钟），即使检测到静音也优先尝试音频管道（Deepgram）
+  // 🎯 对于长视频（>30分钟），即使检测到静音或没有音频轨道，也强制尝试音频管道（Deepgram）
   // 因为音频检测可能误判，而Deepgram可以处理完整的音频轨道
-  const shouldForceAudioPipeline = metadata && metadata.duration > 1800 && hasAudioTrack;
+  // 对于访谈类视频，即使检测失败也应该尝试Deepgram
+  const shouldForceAudioPipeline = videoDuration > 1800; // 30分钟以上强制使用音频管道
   
-  if (shouldForceAudioPipeline && pipelineRecommendation === 'visual') {
-    console.log('[Subtitle] 🎯 Long video detected. Forcing audio pipeline despite visual recommendation.');
+  if (shouldForceAudioPipeline) {
+    if (pipelineRecommendation === 'visual' || !hasAudioTrack) {
+      console.log('[Subtitle] 🎯 Long video detected (>30min). Forcing audio pipeline (Deepgram) despite detection results.');
+      console.log('[Subtitle] 📊 Detection results:', {
+        hasAudioTrack,
+        pipelineRecommendation,
+        averageLoudness: metadata?.averageLoudness?.toFixed(4) || 'N/A',
+        peakLoudness: metadata?.peakLoudness?.toFixed(4) || 'N/A',
+        silenceRatio: metadata?.silenceRatio ? (metadata.silenceRatio * 100).toFixed(1) + '%' : 'N/A'
+      });
+    }
   }
   
   let visualAttempted = false;
@@ -398,9 +409,24 @@ export async function generateResilientSubtitles(
     return await runVisualSubtitleGeneration({ ...options, metadata: resolveMetadataFallback(video, metadata) });
   };
 
-  // 🎯 优先使用音频生成字幕：如果有音频轨道，即使推荐管道是visual，也先尝试音频管道
-  // 对于长视频，即使检测到静音也强制使用音频管道（Deepgram可以处理完整音频）
-  if (hasAudioTrack && (pipelineRecommendation !== 'audio' || shouldForceAudioPipeline)) {
+  // 🎯 优先使用音频生成字幕
+  // 1. 如果是长视频（>30分钟），强制使用音频管道（即使检测失败）
+  // 2. 如果有音频轨道，优先使用音频管道
+  // 3. 只有在短视频且明确没有音频轨道时才使用视觉管道
+  
+  // 🎯 关键修复：长视频必须强制使用音频管道，无论检测结果如何
+  if (shouldForceAudioPipeline) {
+    // 长视频：强制使用音频管道，无论检测结果
+    console.log('[Subtitle] 🎯 Long video (>30min). FORCING audio pipeline (Deepgram) regardless of detection results.');
+    console.log('[Subtitle] 📊 Current detection state:', {
+      hasAudioTrack,
+      pipelineRecommendation,
+      videoDuration: `${(videoDuration / 60).toFixed(1)} minutes`
+    });
+    onStatus?.({ stage: 'Long video detected. Using speech pipeline (Deepgram)...', progress: 12 });
+    // 直接跳过 visual pipeline 检查，进入音频管道
+  } else if (hasAudioTrack && (pipelineRecommendation !== 'audio' || shouldForceAudioPipeline)) {
+    // 有音频轨道：优先使用音频管道
     if (shouldForceAudioPipeline) {
       console.log('[Subtitle] 🎯 Long video with audio track. Forcing audio pipeline (Deepgram) despite visual recommendation.');
     } else {
@@ -408,9 +434,9 @@ export async function generateResilientSubtitles(
     }
     onStatus?.({ stage: 'Audio track detected. Using speech pipeline...', progress: 12 });
   } else if (pipelineRecommendation === 'visual') {
-    // 只有在没有音频轨道时才直接使用视觉管道
-    if (!hasAudioTrack) {
-      console.log('[Subtitle] No audio track detected. Using visual pipeline.');
+    // 只有在短视频且明确没有音频轨道时才使用视觉管道
+    if (!hasAudioTrack && !shouldForceAudioPipeline) {
+      console.log('[Subtitle] No audio track detected (short video). Using visual pipeline.');
       try {
         return await attemptVisual('No audio track detected. Switching to visual analysis...');
       } catch (error) {
@@ -418,7 +444,7 @@ export async function generateResilientSubtitles(
         onStatus?.({ stage: 'Visual analysis failed. Falling back to audio transcription...', progress: 35 });
       }
     } else {
-      console.log('[Subtitle] Audio track detected. Using speech pipeline despite visual recommendation.');
+      console.log('[Subtitle] Audio track detected or long video. Using speech pipeline despite visual recommendation.');
       onStatus?.({ stage: 'Audio track detected. Using speech pipeline...', progress: 12 });
     }
   } else if (pipelineRecommendation === 'hybrid') {
@@ -496,10 +522,31 @@ export async function generateResilientSubtitles(
       provider: routerResult.usedService
     };
   } catch (routerError) {
-    console.warn('[Router] Intelligent routing failed, attempting visual fallback:', routerError);
+    console.warn('[Router] Intelligent routing failed:', routerError);
+    
+    // 🎯 对于长视频，即使 intelligent routing 失败，也不应该使用 visual fallback
+    // 因为长视频几乎肯定有音频，失败可能是网络或API问题，而不是真的没有音频
+    if (shouldForceAudioPipeline) {
+      console.error('[Router] ❌ Long video audio transcription failed. Will NOT use visual fallback.');
+      console.error('[Router] 💡 This is likely a network/API issue, not missing audio. Please retry or check Deepgram API key.');
+      throw new Error(
+        `长视频音频转录失败。这可能是网络或API问题，而不是视频没有音频。\n\n` +
+        `Long video audio transcription failed. This is likely a network/API issue, not missing audio.\n\n` +
+        `建议：\n` +
+        `1. 检查 Deepgram API Key 是否正确配置\n` +
+        `2. 检查网络连接\n` +
+        `3. 稍后重试\n\n` +
+        `Suggestions:\n` +
+        `1. Check if Deepgram API Key is correctly configured\n` +
+        `2. Check network connection\n` +
+        `3. Retry later\n\n` +
+        `原始错误 / Original error: ${routerError instanceof Error ? routerError.message : String(routerError)}`
+      );
+    }
+    
     onStatus?.({ stage: 'Intelligent routing failed. Trying visual analysis...', progress: 30 });
 
-    const shouldAttemptVisualFallback = !visualAttempted && pipelineRecommendation !== 'audio';
+    const shouldAttemptVisualFallback = !visualAttempted && pipelineRecommendation !== 'audio' && !shouldForceAudioPipeline;
 
     if (shouldAttemptVisualFallback) {
       try {
