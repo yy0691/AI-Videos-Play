@@ -254,13 +254,16 @@ export async function generateSubtitlesWithDeepgram(
   // 🎯 根据文件大小动态计算超时时间
   // 小文件（<10MB）：60秒
   // 中等文件（10-100MB）：120秒
-  // 大文件（100-500MB）：300秒
-  // 超大文件（>500MB）：600秒
+  // 大文件（100-500MB）：600秒（10分钟）
+  // 超大文件（>500MB）：1200秒（20分钟）
+  // 注意：对于超大文件，上传时间可能很长，需要更长的超时时间
   const calculateTimeout = (sizeMB: number): number => {
     if (sizeMB < 10) return 60000;      // 60秒
     if (sizeMB < 100) return 120000;    // 120秒
-    if (sizeMB < 500) return 300000;    // 300秒
-    return 600000;                      // 600秒（10分钟）
+    if (sizeMB < 500) return 600000;    // 600秒（10分钟）
+    // 对于超大文件（>500MB），使用更长的超时时间
+    // 估算：100MB/s上传速度，500MB需要5秒，但考虑到网络波动，使用20分钟
+    return 1200000;                     // 1200秒（20分钟）
   };
 
   const requestTimeout = calculateTimeout(fileSizeMB);
@@ -410,29 +413,29 @@ export async function generateSubtitlesWithDeepgram(
       let targetBitrate = 32000; // 默认 32 kbps（高质量）
       let maxDuration: number | undefined = undefined;
       
-      // 🎯 新策略：优先保证质量，不限制时长（处理完整视频）
+      // 🎯 新策略：根据文件大小选择合适的压缩质量
+      // 对于超大文件，使用更激进的压缩以确保文件变小
       // 如果压缩后仍然太大（>4MB），会通过直接调用Deepgram API处理（支持2GB）
       if (fileSizeMB > 500) {
-        // 超大文件（>500MB）：使用 16kbps（最低质量要求），处理完整视频
-        targetBitrate = 16000;
-        // 不限制时长，处理完整视频
-        console.log('[Deepgram] 🔧 Using balanced compression: 16kbps, processing full video');
+        // 超大文件（>500MB）：使用 12kbps（激进压缩），处理完整视频
+        targetBitrate = 12000;
+        console.log('[Deepgram] 🔧 Using aggressive compression: 12kbps, processing full video');
       } else if (fileSizeMB > 300) {
-        // 大文件（>300MB）：使用 20kbps，处理完整视频
+        // 大文件（>300MB）：使用 16kbps，处理完整视频
+        targetBitrate = 16000;
+        console.log('[Deepgram] 🔧 Using balanced compression: 16kbps, processing full video');
+      } else if (fileSizeMB > 200) {
+        // 大文件（>200MB）：使用 20kbps，处理完整视频
         targetBitrate = 20000;
         console.log('[Deepgram] 🔧 Using moderate compression: 20kbps, processing full video');
-      } else if (fileSizeMB > 200) {
-        // 大文件（>200MB）：使用 24kbps，处理完整视频
+      } else if (fileSizeMB > 100) {
+        // 中等文件（>100MB）：使用 24kbps，处理完整视频
         targetBitrate = 24000;
         console.log('[Deepgram] 🔧 Using light compression: 24kbps, processing full video');
-      } else if (fileSizeMB > 100) {
-        // 中等文件（>100MB）：使用 28kbps，处理完整视频
-        targetBitrate = 28000;
-        console.log('[Deepgram] 🔧 Using minimal compression: 28kbps, processing full video');
       } else {
-        // 小文件（≤100MB）：使用 32kbps（高质量），处理完整视频
-        targetBitrate = 32000;
-        console.log('[Deepgram] 🔧 Using high quality: 32kbps, processing full video');
+        // 小文件（≤100MB）：使用 28kbps（高质量），处理完整视频
+        targetBitrate = 28000;
+        console.log('[Deepgram] 🔧 Using high quality: 28kbps, processing full video');
       }
       
       // Extract and compress audio
@@ -459,6 +462,83 @@ export async function generateSubtitlesWithDeepgram(
         savedSpace: `${((1 - compressedSize / originalSize) * 100).toFixed(1)}%`,
         processedDuration: maxDuration ? `${(maxDuration / 60).toFixed(1)} minutes` : `${(duration / 60).toFixed(1)} minutes (full)`,
       });
+
+      // 🎯 检查压缩是否有效：如果压缩后反而变大，使用原始文件
+      if (compressedSizeMB > fileSizeMB) {
+        console.warn(`[Deepgram] ⚠️ Compression actually increased file size (${compressedSizeMB.toFixed(2)}MB > ${fileSizeMB.toFixed(2)}MB)`);
+        console.warn('[Deepgram] 💡 This usually happens when video is already highly compressed');
+        console.warn('[Deepgram] 💡 Will use original file instead of compressed version');
+        
+        // 使用原始文件，但需要增加超时时间
+        const largeFileTimeout = Math.max(requestTimeout, 600000); // 至少10分钟
+        console.log(`[Deepgram] 🔧 Using original file with extended timeout: ${largeFileTimeout / 1000}s`);
+        
+        // 直接使用原始文件调用Deepgram API
+        try {
+          onProgress?.(50);
+          
+          const params = new URLSearchParams({
+            model: 'nova-2',
+            smart_format: 'true',
+            punctuate: 'true',
+            paragraphs: 'false',
+            utterances: 'false',
+          });
+
+          const languageCode = normalizeLanguageCode(language);
+          if (languageCode) {
+            params.append('language', languageCode);
+            console.log('[Deepgram] 🌐 Language specified:', { input: language, normalized: languageCode });
+          } else {
+            console.log('[Deepgram] 🌐 Language auto-detection enabled');
+          }
+
+          const contentType = file.type || 'video/mp4';
+          const directUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
+          
+          // 🎯 添加Content-Length头
+          const headers: HeadersInit = {
+            'Authorization': `Token ${apiKey}`,
+            'Content-Type': contentType,
+            'Content-Length': file.size.toString(),
+          };
+          
+          console.log('[Deepgram] 📤 Uploading original file directly to Deepgram (compression not effective)...');
+          console.log(`[Deepgram] 📊 Original file: ${fileSizeMB.toFixed(2)}MB (within Deepgram's 2GB limit)`);
+          
+          const directResponse = await retryWithBackoff(
+            () => fetchWithTimeout(
+              directUrl,
+              {
+                method: 'POST',
+                headers,
+                body: file,
+              },
+              largeFileTimeout
+            ),
+            2,
+            2000
+          );
+
+          onProgress?.(90);
+
+          if (directResponse.ok) {
+            const result: DeepgramResponse = await directResponse.json();
+            onProgress?.(100);
+            console.log('[Deepgram] ✅✅✅ SUCCESS! Direct API call with original file worked!');
+            logDeepgramResponse(result, 'direct call (original file, compression ineffective)');
+            return result;
+          } else {
+            const errorText = await directResponse.text();
+            console.warn('[Deepgram] ⚠️ Direct API call with original file failed:', errorText);
+            // 继续尝试Storage上传
+          }
+        } catch (originalError) {
+          const errorMsg = originalError instanceof Error ? originalError.message : String(originalError);
+          console.warn('[Deepgram] ⚠️ Direct API call with original file failed:', errorMsg);
+          // 继续尝试Storage上传
+        }
+      }
 
       // Check if compressed audio is still too large for Vercel proxy
       if (compressedSizeMB > VERCEL_SIZE_LIMIT_MB) {
@@ -509,6 +589,14 @@ export async function generateSubtitlesWithDeepgram(
             'Authorization': 'Token ***' // 不记录完整key
           });
           
+          // 🎯 对于超大文件，使用更长的超时时间
+          // 217MB文件上传可能需要很长时间，使用20分钟超时
+          const uploadTimeout = compressedSizeMB > 100 
+            ? Math.max(requestTimeout, 1200000) // 至少20分钟
+            : requestTimeout;
+          
+          console.log(`[Deepgram] ⏱️ Using timeout: ${uploadTimeout / 1000}s for ${compressedSizeMB.toFixed(2)}MB file`);
+          
           // 使用带超时的fetch，并添加重试机制
           const directResponse = await retryWithBackoff(
             () => fetchWithTimeout(
@@ -518,7 +606,7 @@ export async function generateSubtitlesWithDeepgram(
                 headers,
                 body: audioBlob,
               },
-              requestTimeout
+              uploadTimeout
             ),
             2, // 最多重试2次（总共3次尝试）
             2000 // 基础延迟2秒
@@ -544,29 +632,29 @@ export async function generateSubtitlesWithDeepgram(
           console.log('[Deepgram] ℹ️ This might be due to CORS or network issues. Trying Storage upload...');
           
           // 🎯 策略2：如果直接调用失败，尝试上传到Storage
-          try {
-            const { uploadFileToStorageWithProgress } = await import('../utils/uploadToStorage');
-            
-            // Convert Blob to File
-            const fileToUpload = new File([audioBlob], 'compressed-audio.wav', { type: 'audio/wav' });
-            
-            const uploadResult = await uploadFileToStorageWithProgress(fileToUpload, {
-              onProgress: (uploadProgress) => {
-                onProgress?.(50 + uploadProgress * 0.3);
-              },
-            });
+        try {
+          const { uploadFileToStorageWithProgress } = await import('../utils/uploadToStorage');
+          
+          // Convert Blob to File
+          const fileToUpload = new File([audioBlob], 'compressed-audio.wav', { type: 'audio/wav' });
+          
+          const uploadResult = await uploadFileToStorageWithProgress(fileToUpload, {
+            onProgress: (uploadProgress) => {
+              onProgress?.(50 + uploadProgress * 0.3);
+            },
+          });
 
-            onProgress?.(80);
-            console.log('[Deepgram] Audio uploaded, using URL mode:', uploadResult.fileUrl);
+          onProgress?.(80);
+          console.log('[Deepgram] Audio uploaded, using URL mode:', uploadResult.fileUrl);
 
-            // Use Deepgram URL mode
+          // Use Deepgram URL mode
             const urlParams = new URLSearchParams({
-              model: 'nova-2',
-              smart_format: 'true',
-              punctuate: 'true',
-              paragraphs: 'false',
-              utterances: 'false',
-            });
+            model: 'nova-2',
+            smart_format: 'true',
+            punctuate: 'true',
+            paragraphs: 'false',
+            utterances: 'false',
+          });
 
             // 🎯 语言参数处理：标准化语言代码
             const urlLanguageCode = normalizeLanguageCode(language);
@@ -580,65 +668,65 @@ export async function generateSubtitlesWithDeepgram(
             urlParams.append('url_mode', 'true');
             const proxyUrl = `/api/deepgram-proxy?${urlParams.toString()}`;
 
-            // 使用带超时的fetch，并添加重试机制
-            const response = await retryWithBackoff(
-              () => fetchWithTimeout(
-                proxyUrl,
-                {
-                  method: 'POST',
-                  headers: {
-                    'X-Deepgram-API-Key': apiKey,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({ url: uploadResult.fileUrl }),
+          // 使用带超时的fetch，并添加重试机制
+          const response = await retryWithBackoff(
+            () => fetchWithTimeout(
+              proxyUrl,
+              {
+                method: 'POST',
+                headers: {
+                  'X-Deepgram-API-Key': apiKey,
+                  'Content-Type': 'application/json',
                 },
-                requestTimeout
-              ),
-              2, // 最多重试2次（总共3次尝试）
-              2000 // 基础延迟2秒
-            );
+                body: JSON.stringify({ url: uploadResult.fileUrl }),
+              },
+              requestTimeout
+            ),
+            2, // 最多重试2次（总共3次尝试）
+            2000 // 基础延迟2秒
+          );
 
-            onProgress?.(90);
+          onProgress?.(90);
 
-            if (!response.ok) {
-              const errorText = await response.text();
-              throw new Error(`Deepgram API error (${response.status}): ${errorText || response.statusText}`);
-            }
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Deepgram API error (${response.status}): ${errorText || response.statusText}`);
+          }
 
-            const result: DeepgramResponse = await response.json();
-            onProgress?.(100);
+          const result: DeepgramResponse = await response.json();
+          onProgress?.(100);
 
             logDeepgramResponse(result, 'URL mode (compressed audio)');
-            return result;
-          } catch (uploadError) {
-            const uploadErrorMessage = uploadError instanceof Error ? uploadError.message : String(uploadError);
-            console.error('[Deepgram] Storage upload failed:', uploadErrorMessage);
-            
-            // 📌 重要提示：提供更友好的错误信息
-            const isSupabaseConfigError = uploadErrorMessage.includes('SUPABASE_SERVICE_ROLE_KEY') 
-              || uploadErrorMessage.includes('not configured')
+          return result;
+        } catch (uploadError) {
+          const uploadErrorMessage = uploadError instanceof Error ? uploadError.message : String(uploadError);
+          console.error('[Deepgram] Storage upload failed:', uploadErrorMessage);
+          
+          // 📌 重要提示：提供更友好的错误信息
+          const isSupabaseConfigError = uploadErrorMessage.includes('SUPABASE_SERVICE_ROLE_KEY') 
+            || uploadErrorMessage.includes('not configured')
               || uploadErrorMessage.includes('500')
               || uploadErrorMessage.includes('does not exist');
-            
-            if (isSupabaseConfigError) {
-              throw new Error(
+          
+          if (isSupabaseConfigError) {
+            throw new Error(
                 `压缩后的音频仍然太大 (${compressedSizeMB.toFixed(2)}MB)\n\n` +
                 `已尝试的方法：\n` +
                 `1. ✅ 直接调用Deepgram API（失败：${directErrorMessage.includes('CORS') ? 'CORS限制' : '网络错误'}）\n` +
                 `2. ❌ 上传到Storage（失败：Storage未配置）\n\n` +
-                `当前情况：\n` +
-                `• 原始文件：${fileSizeMB.toFixed(2)}MB\n` +
-                `• 压缩后：${compressedSizeMB.toFixed(2)}MB（${maxDuration ? `前${maxDuration/60}分钟` : '全部'}）\n` +
-                `• 压缩比率：${compressionRatio.toFixed(1)}x\n` +
+              `当前情况：\n` +
+              `• 原始文件：${fileSizeMB.toFixed(2)}MB\n` +
+              `• 压缩后：${compressedSizeMB.toFixed(2)}MB（${maxDuration ? `前${maxDuration/60}分钟` : '全部'}）\n` +
+              `• 压缩比率：${compressionRatio.toFixed(1)}x\n` +
                 `• Vercel限制：${VERCEL_SIZE_LIMIT_MB}MB（通过proxy时）\n` +
                 `• Deepgram限制：2GB（直接调用时，但遇到CORS问题）\n\n` +
-                `🔧 解决方案（3选1）：\n\n` +
-                `【推荐】方案1：配置 Supabase Storage\n` +
-                `  在 Vercel 环境变量中添加：\n` +
-                `  • SUPABASE_SERVICE_ROLE_KEY=你的密钥\n` +
+              `🔧 解决方案（3选1）：\n\n` +
+              `【推荐】方案1：配置 Supabase Storage\n` +
+              `  在 Vercel 环境变量中添加：\n` +
+              `  • SUPABASE_SERVICE_ROLE_KEY=你的密钥\n` +
                 `  详见：@docs/SUPABASE_STORAGE_QUICK_SETUP.md\n\n` +
-                `方案2：使用更短的视频\n` +
-                `  当前已处理${maxDuration ? `前${maxDuration/60}分钟` : '全部内容'}，\n` +
+              `方案2：使用更短的视频\n` +
+              `  当前已处理${maxDuration ? `前${maxDuration/60}分钟` : '全部内容'}，\n` +
                 `  可以尝试剪辑为5-8分钟的片段\n\n` +
                 `方案3：检查网络/CORS设置\n` +
                 `  如果直接调用失败，可能是CORS问题，\n` +
@@ -647,19 +735,19 @@ export async function generateSubtitlesWithDeepgram(
                 `Attempted methods:\n` +
                 `1. ✅ Direct Deepgram API call (failed: ${directErrorMessage.includes('CORS') ? 'CORS restriction' : 'network error'})\n` +
                 `2. ❌ Storage upload (failed: Storage not configured)\n\n` +
-                `Current status:\n` +
-                `• Original file: ${fileSizeMB.toFixed(2)}MB\n` +
-                `• Compressed: ${compressedSizeMB.toFixed(2)}MB (${maxDuration ? `first ${maxDuration/60} min` : 'full'})\n` +
-                `• Compression ratio: ${compressionRatio.toFixed(1)}x\n` +
+              `Current status:\n` +
+              `• Original file: ${fileSizeMB.toFixed(2)}MB\n` +
+              `• Compressed: ${compressedSizeMB.toFixed(2)}MB (${maxDuration ? `first ${maxDuration/60} min` : 'full'})\n` +
+              `• Compression ratio: ${compressionRatio.toFixed(1)}x\n` +
                 `• Vercel limit: ${VERCEL_SIZE_LIMIT_MB}MB (via proxy)\n` +
                 `• Deepgram limit: 2GB (direct call, but CORS issue encountered)\n\n` +
-                `🔧 Solutions (choose one):\n\n` +
-                `[Recommended] Option 1: Configure Supabase Storage\n` +
-                `  Add to Vercel environment variables:\n` +
-                `  • SUPABASE_SERVICE_ROLE_KEY=your-key\n` +
+              `🔧 Solutions (choose one):\n\n` +
+              `[Recommended] Option 1: Configure Supabase Storage\n` +
+              `  Add to Vercel environment variables:\n` +
+              `  • SUPABASE_SERVICE_ROLE_KEY=your-key\n` +
                 `  See: @docs/SUPABASE_STORAGE_QUICK_SETUP.md\n\n` +
-                `Option 2: Use shorter videos\n` +
-                `  Currently processed ${maxDuration ? `first ${maxDuration/60} min` : 'full content'},\n` +
+              `Option 2: Use shorter videos\n` +
+              `  Currently processed ${maxDuration ? `first ${maxDuration/60} min` : 'full content'},\n` +
                 `  try 5-8 minute segments\n\n` +
                 `Option 3: Check network/CORS settings\n` +
                 `  If direct call fails, it might be a CORS issue,\n` +
@@ -668,8 +756,8 @@ export async function generateSubtitlesWithDeepgram(
             }
             
             // 其他Storage错误
-            throw new Error(
-              `压缩后的音频仍然太大 (${compressedSizeMB.toFixed(2)}MB)\n\n` +
+          throw new Error(
+            `压缩后的音频仍然太大 (${compressedSizeMB.toFixed(2)}MB)\n\n` +
               `已尝试的方法：\n` +
               `1. ✅ 直接调用Deepgram API（失败：${directErrorMessage.includes('CORS') ? 'CORS限制' : '网络错误'}）\n` +
               `2. ❌ 上传到Storage（失败：${uploadErrorMessage}）\n\n` +
@@ -677,7 +765,7 @@ export async function generateSubtitlesWithDeepgram(
               `1. 配置 Supabase Storage（设置 SUPABASE_SERVICE_ROLE_KEY）\n` +
               `2. 使用时长更短的视频片段（5-8分钟）\n` +
               `3. 检查网络连接和CORS设置\n\n` +
-              `Compressed audio still too large (${compressedSizeMB.toFixed(2)}MB)\n\n` +
+            `Compressed audio still too large (${compressedSizeMB.toFixed(2)}MB)\n\n` +
               `Attempted methods:\n` +
               `1. ✅ Direct Deepgram API call (failed: ${directErrorMessage.includes('CORS') ? 'CORS restriction' : 'network error'})\n` +
               `2. ❌ Storage upload (failed: ${uploadErrorMessage})\n\n` +
@@ -1050,7 +1138,7 @@ export function deepgramToSegments(response: DeepgramResponse): DeepgramSegment[
       if (trimmedText.length > 0 && 
           trimmedText.length < 200 && 
           !isRepetitiveText(trimmedText)) { // 过滤重复文本
-        segments.push(currentSegment);
+      segments.push(currentSegment);
       }
       currentSegment = {
         start: word.start,
