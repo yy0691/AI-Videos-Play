@@ -85,6 +85,8 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
   const [showTranslationLanguageModal, setShowTranslationLanguageModal] = useState(false);
   const [isTranslationFromUser, setIsTranslationFromUser] = useState(false);
   const [showRegenerateConfirmModal, setShowRegenerateConfirmModal] = useState(false);
+  const [showSubtitleLanguageModal, setShowSubtitleLanguageModal] = useState(false);
+  const [selectedVideoLanguage, setSelectedVideoLanguage] = useState<string | null>(null); // 用户选择的视频语言
   
   const [generationStatus, setGenerationStatus] = useState({ active: false, stage: '', progress: 0 });
   const [streamingSubtitles, setStreamingSubtitles] = useState(''); // For real-time subtitle display
@@ -94,7 +96,25 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
   const topicsAnalysis = analyses.find(a => a.type === 'topics');
   const keyInfoAnalysis = analyses.find(a => a.type === 'key-info');
   const [activeTopic, setActiveTopic] = useState<string | null>(null);
-  const sourceLanguage = useMemo(() => (language === 'zh' ? 'Chinese' : 'English'), [language]);
+  // 🎯 视频语言：优先使用用户选择的语言，否则从UI语言推导（向后兼容）
+  const sourceLanguage = useMemo(() => {
+    if (selectedVideoLanguage) {
+      // 用户选择的语言映射到LANGUAGE_CODE_MAP的key
+      const languageMap: Record<string, string> = {
+        'zh': 'Chinese',
+        'en': 'English',
+        'ja': 'Japanese',
+        'ko': 'Korean',
+        'es': 'Spanish',
+        'fr': 'French',
+        'de': 'German',
+        'ru': 'Russian',
+      };
+      return languageMap[selectedVideoLanguage] || 'Chinese';
+    }
+    // 向后兼容：如果没有选择，从UI语言推导
+    return language === 'zh' ? 'Chinese' : 'English';
+  }, [selectedVideoLanguage, language]);
   
   // Generate video hash on mount for caching
   useEffect(() => {
@@ -386,15 +406,32 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
       console.log('[Subtitle] 🧹 Cleared cache for regeneration');
     }
 
-    // Call the original generate function with skipCache flag
-    await handleGenerateSubtitles(true);
+    // 🎯 重新生成时也显示语言选择（如果之前没有选择过）
+    if (!selectedVideoLanguage) {
+      setShowSubtitleLanguageModal(true);
+      return;
+    }
+
+    // Call the original generate function with skipCache flag and selected language
+    await handleGenerateSubtitles(true, selectedVideoLanguage);
   };
 
-  const handleGenerateSubtitles = async (skipCache: boolean = false) => {
+  const handleGenerateSubtitles = async (skipCache: boolean = false, videoLanguage?: string) => {
     // Prevent duplicate calls
     if (isGeneratingSubtitles) {
       console.log('Subtitle generation already in progress, ignoring duplicate call');
       return;
+    }
+
+    // 🎯 如果提供了语言参数，使用它；否则显示语言选择模态框
+    if (!videoLanguage && !selectedVideoLanguage) {
+      setShowSubtitleLanguageModal(true);
+      return;
+    }
+
+    // 如果用户选择了语言，保存它
+    if (videoLanguage) {
+      setSelectedVideoLanguage(videoLanguage);
     }
 
     // Validate file size (max 2GB)
@@ -1079,6 +1116,120 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         </div>
       )}
 
+      {/* 视频语言选择模态框 */}
+      {showSubtitleLanguageModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-md overflow-hidden rounded-[32px] bg-white shadow-[0_18px_80px_rgba(15,23,42,0.32)] text-slate-900">
+            <button
+              onClick={() => setShowSubtitleLanguageModal(false)}
+              className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-slate-100/80 text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <div className="border-b border-slate-100 px-8 py-6">
+              <h2 className="text-lg font-semibold tracking-tight">
+                {language === 'zh' ? '选择视频语言' : 'Select Video Language'}
+              </h2>
+              <p className="text-xs text-slate-500 mt-1.5">
+                {language === 'zh' 
+                  ? '请选择视频中实际使用的语言，这将提高字幕识别的准确性' 
+                  : 'Please select the actual language used in the video to improve subtitle recognition accuracy'}
+              </p>
+            </div>
+            <div className="px-8 py-6 space-y-3 max-h-[60vh] overflow-y-auto">
+              <button
+                onClick={() => {
+                  setShowSubtitleLanguageModal(false);
+                  handleGenerateSubtitles(false, 'zh');
+                }}
+                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition"
+              >
+                <div className="font-medium text-slate-900">中文 (Chinese)</div>
+                <div className="text-xs text-slate-500 mt-0.5">简体中文 / 繁體中文</div>
+              </button>
+              <button
+                onClick={() => {
+                  setShowSubtitleLanguageModal(false);
+                  handleGenerateSubtitles(false, 'en');
+                }}
+                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition"
+              >
+                <div className="font-medium text-slate-900">English (英语)</div>
+                <div className="text-xs text-slate-500 mt-0.5">English</div>
+              </button>
+              <button
+                onClick={() => {
+                  setShowSubtitleLanguageModal(false);
+                  handleGenerateSubtitles(false, 'ja');
+                }}
+                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition"
+              >
+                <div className="font-medium text-slate-900">日本語 (Japanese)</div>
+                <div className="text-xs text-slate-500 mt-0.5">Japanese</div>
+              </button>
+              <button
+                onClick={() => {
+                  setShowSubtitleLanguageModal(false);
+                  handleGenerateSubtitles(false, 'ko');
+                }}
+                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition"
+              >
+                <div className="font-medium text-slate-900">한국어 (Korean)</div>
+                <div className="text-xs text-slate-500 mt-0.5">Korean</div>
+              </button>
+              <button
+                onClick={() => {
+                  setShowSubtitleLanguageModal(false);
+                  handleGenerateSubtitles(false, 'es');
+                }}
+                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition"
+              >
+                <div className="font-medium text-slate-900">Español (Spanish)</div>
+                <div className="text-xs text-slate-500 mt-0.5">Spanish</div>
+              </button>
+              <button
+                onClick={() => {
+                  setShowSubtitleLanguageModal(false);
+                  handleGenerateSubtitles(false, 'fr');
+                }}
+                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition"
+              >
+                <div className="font-medium text-slate-900">Français (French)</div>
+                <div className="text-xs text-slate-500 mt-0.5">French</div>
+              </button>
+              <button
+                onClick={() => {
+                  setShowSubtitleLanguageModal(false);
+                  handleGenerateSubtitles(false, 'de');
+                }}
+                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition"
+              >
+                <div className="font-medium text-slate-900">Deutsch (German)</div>
+                <div className="text-xs text-slate-500 mt-0.5">German</div>
+              </button>
+              <button
+                onClick={() => {
+                  setShowSubtitleLanguageModal(false);
+                  handleGenerateSubtitles(false, 'auto');
+                }}
+                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border-2 border-dashed border-slate-300 hover:bg-slate-100 hover:border-slate-400 transition"
+              >
+                <div className="font-medium text-slate-900">
+                  {language === 'zh' ? '自动检测 (Auto Detect)' : 'Auto Detect (自动检测)'}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {language === 'zh' 
+                    ? '让系统自动识别视频语言（可能不够准确）' 
+                    : 'Let the system automatically detect the video language (may be less accurate)'}
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 重新生成字幕确认对话框 */}
       {showRegenerateConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -1104,7 +1255,8 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
                 <button
                   onClick={async () => {
                     setShowRegenerateConfirmModal(false);
-                    await handleRegenerateSubtitles();
+                    // 使用之前选择的语言重新生成
+                    await handleGenerateSubtitles(true, selectedVideoLanguage || undefined);
                   }}
                   className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition"
                 >

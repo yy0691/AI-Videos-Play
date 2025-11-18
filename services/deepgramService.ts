@@ -132,6 +132,52 @@ export async function isDeepgramAvailable(): Promise<boolean> {
 }
 
 /**
+ * Check if text is highly repetitive (likely recognition error)
+ */
+function isRepetitiveText(text: string): boolean {
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  if (words.length < 3) return false;
+  
+  // Check for patterns like "的人的人的人" or "word word word"
+  const uniqueWords = new Set(words);
+  const repetitionRatio = uniqueWords.size / words.length;
+  
+  // If more than 60% of words are duplicates, consider it repetitive
+  if (repetitionRatio < 0.4) {
+    return true;
+  }
+  
+  // Check for consecutive identical words (3+ times)
+  let consecutiveCount = 1;
+  for (let i = 1; i < words.length; i++) {
+    if (words[i] === words[i - 1]) {
+      consecutiveCount++;
+      if (consecutiveCount >= 3) {
+        return true;
+      }
+    } else {
+      consecutiveCount = 1;
+    }
+  }
+  
+  // Check for patterns like "A B A B A B"
+  if (words.length >= 6) {
+    const pattern = words.slice(0, 2).join(' ');
+    let patternMatches = 0;
+    for (let i = 0; i < words.length - 1; i += 2) {
+      if (words.slice(i, i + 2).join(' ') === pattern) {
+        patternMatches++;
+      }
+    }
+    if (patternMatches >= 3) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
  * Log Deepgram response details for debugging
  */
 function logDeepgramResponse(result: DeepgramResponse, mode: string): void {
@@ -873,16 +919,36 @@ export function deepgramToSegments(response: DeepgramResponse): DeepgramSegment[
   const MAX_SEGMENT_DURATION = 5.0; // 5 seconds per segment
   const MAX_WORDS_PER_SEGMENT = 15; // Max words per segment
 
-  // Filter out invalid words (empty, too short, or duplicate consecutive words)
+  // 🎯 更严格的过滤：过滤无效、重复和错误识别的单词
   const validWords = words.filter((word, index) => {
     if (!word.word || word.word.trim().length === 0) {
       return false;
     }
-    // Filter out duplicate consecutive words (likely recognition errors)
-    if (index > 0 && word.word === words[index - 1].word && 
-        Math.abs(word.start - words[index - 1].start) < 0.5) {
+    
+    const wordText = word.word.trim();
+    
+    // 过滤单个字符的单词（可能是识别错误）
+    if (wordText.length === 1 && !/[a-zA-Z0-9]/.test(wordText)) {
       return false;
     }
+    
+    // 过滤连续重复的单词（可能是识别错误）
+    if (index > 0) {
+      const prevWord = words[index - 1].word.trim();
+      if (wordText === prevWord && Math.abs(word.start - words[index - 1].start) < 0.5) {
+        return false;
+      }
+    }
+    
+    // 过滤3次以上连续重复的模式（如"的人的人的人"）
+    if (index >= 2) {
+      const prev1 = words[index - 1].word.trim();
+      const prev2 = words[index - 2].word.trim();
+      if (wordText === prev1 && prev1 === prev2) {
+        return false;
+      }
+    }
+    
     return true;
   });
 
@@ -912,7 +978,10 @@ export function deepgramToSegments(response: DeepgramResponse): DeepgramSegment[
     if (segmentDuration > MAX_SEGMENT_DURATION || wordCount >= MAX_WORDS_PER_SEGMENT) {
       // Only add segment if it has meaningful content
       const trimmedText = currentSegment.text.trim();
-      if (trimmedText.length > 0 && trimmedText.length < 200) { // Filter out extremely long segments (likely errors)
+      // 🎯 更严格的过滤：检查重复模式和无效内容
+      if (trimmedText.length > 0 && 
+          trimmedText.length < 200 && 
+          !isRepetitiveText(trimmedText)) { // 过滤重复文本
         segments.push(currentSegment);
       }
       currentSegment = {
@@ -929,7 +998,9 @@ export function deepgramToSegments(response: DeepgramResponse): DeepgramSegment[
 
   // Add last segment
   const trimmedText = currentSegment.text.trim();
-  if (trimmedText.length > 0 && trimmedText.length < 200) {
+  if (trimmedText.length > 0 && 
+      trimmedText.length < 200 && 
+      !isRepetitiveText(trimmedText)) {
     segments.push(currentSegment);
   }
 
