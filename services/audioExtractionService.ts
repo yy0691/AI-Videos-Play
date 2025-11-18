@@ -77,11 +77,11 @@ export async function extractAndCompressAudio(
 
     onProgress?.(40, 'Compressing audio...');
 
-    // Calculate samples to extract
-    const sampleRate = audioBuffer.sampleRate;
-    const samplesToExtract = Math.min(
+    // Calculate samples to extract based on INPUT sample rate
+    const inputSampleRate = audioBuffer.sampleRate;
+    const inputSamplesToExtract = Math.min(
       audioBuffer.length,
-      Math.floor(duration * sampleRate)
+      Math.floor(duration * inputSampleRate)
     );
 
     // 🎯 智能采样率选择：根据目标比特率动态调整
@@ -98,16 +98,23 @@ export async function extractAndCompressAudio(
       outputSampleRate = 12000;
     }
     
+    // 🔧 重要：计算输出采样数（基于输出采样率）
+    const outputSamples = Math.floor(duration * outputSampleRate);
+    
     console.log('[Audio Extraction] Using sample rate:', {
+      inputSampleRate: `${inputSampleRate}Hz`,
+      inputSamples: inputSamplesToExtract,
       targetBitrate: `${targetBitrate / 1000}kbps`,
       outputSampleRate: `${outputSampleRate}Hz`,
-      estimatedBitrate: `${Math.round(outputSampleRate * 1 * 1 / 1000)}kbps (8-bit mono)`
+      outputSamples: outputSamples,
+      duration: `${duration.toFixed(1)}s`,
+      estimatedSize: `${(outputSamples * 1 / (1024 * 1024)).toFixed(2)}MB (8-bit mono)`
     });
 
     // Create offline context for rendering
     const offlineContext = new OfflineAudioContext({
       numberOfChannels: 1, // Mono for smaller size
-      length: samplesToExtract,
+      length: outputSamples, // 使用输出采样率计算的样本数
       sampleRate: outputSampleRate, // 动态采样率
     });
 

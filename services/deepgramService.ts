@@ -410,9 +410,59 @@ export async function generateSubtitlesWithDeepgram(
         }
       }
 
-      // Use compressed audio directly
-      console.log('[Deepgram] Using compressed audio for transcription (direct mode)');
+      // Use compressed audio
+      console.log('[Deepgram] Using compressed audio for transcription');
       file = audioBlob;
+      
+      // 🎯 压缩后的音频也尝试直接调用（不受4MB限制）
+      const compressedFileSizeMB = file.size / (1024 * 1024);
+      if (compressedFileSizeMB <= DEEPGRAM_DIRECT_LIMIT_MB) {
+        console.log(`[Deepgram] 🚀 Compressed audio (${compressedFileSizeMB.toFixed(2)}MB), trying direct API call first`);
+        
+        try {
+          onProgress?.(55);
+          
+          const params = new URLSearchParams({
+            model: 'nova-2',
+            smart_format: 'true',
+            punctuate: 'true',
+            paragraphs: 'false',
+            utterances: 'false',
+          });
+
+          if (language && language !== 'auto') {
+            params.append('language', language);
+          }
+
+          const contentType = 'audio/wav';
+          const directUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
+          
+          console.log('[Deepgram] 📤 Uploading compressed audio to Deepgram directly...');
+          
+          const directResponse = await fetch(directUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Token ${apiKey}`,
+              'Content-Type': contentType,
+            },
+            body: file,
+          });
+
+          onProgress?.(90);
+
+          if (directResponse.ok) {
+            const result: DeepgramResponse = await directResponse.json();
+            onProgress?.(100);
+            console.log('[Deepgram] ✅ Direct API call with compressed audio successful!');
+            return result;
+          } else {
+            const errorText = await directResponse.text();
+            console.warn('[Deepgram] ⚠️ Direct API call with compressed audio failed:', errorText);
+          }
+        } catch (compressedDirectError) {
+          console.log('[Deepgram] ℹ️ Direct API call with compressed audio failed, will try proxy:', compressedDirectError);
+        }
+      }
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
