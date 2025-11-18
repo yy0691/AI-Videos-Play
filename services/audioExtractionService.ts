@@ -85,17 +85,23 @@ export async function extractAndCompressAudio(
     );
 
     // 🎯 智能采样率选择：根据目标比特率动态调整
-    // 对于语音识别，采样率可以很低
+    // ⚠️ 重要：提高采样率以确保识别质量（8kHz太低会导致识别错误）
     let outputSampleRate = 16000; // 默认16kHz
-    if (targetBitrate <= 8000) {
-      // 8kbps: 使用8kHz采样率
-      outputSampleRate = 8000;
-    } else if (targetBitrate <= 12000) {
-      // 12kbps: 使用11kHz采样率
-      outputSampleRate = 11025;
-    } else if (targetBitrate <= 16000) {
-      // 16kbps: 使用12kHz采样率
-      outputSampleRate = 12000;
+    if (targetBitrate <= 16000) {
+      // ≤16kbps: 使用16kHz采样率（最低质量要求）
+      outputSampleRate = 16000;
+    } else if (targetBitrate <= 20000) {
+      // 20kbps: 使用16kHz采样率
+      outputSampleRate = 16000;
+    } else if (targetBitrate <= 24000) {
+      // 24kbps: 使用16kHz采样率
+      outputSampleRate = 16000;
+    } else if (targetBitrate <= 28000) {
+      // 28kbps: 使用16kHz采样率
+      outputSampleRate = 16000;
+    } else {
+      // ≥32kbps: 使用16kHz采样率（高质量）
+      outputSampleRate = 16000;
     }
     
     // 🔧 重要：计算输出采样数（基于输出采样率）
@@ -130,8 +136,9 @@ export async function extractAndCompressAudio(
     onProgress?.(70, 'Encoding audio...');
 
     // Convert to WAV format (simple format that Deepgram accepts)
-    // 🎯 对于低比特率（<=8kbps），使用8-bit编码以获得更好的压缩
-    const use8Bit = targetBitrate <= 8000;
+    // 🎯 重要：使用16-bit编码以确保识别质量（8-bit太低会导致识别错误）
+    // 只有在极端情况下（文件超大且需要极低比特率）才考虑8-bit
+    const use8Bit = false; // 始终使用16-bit以确保质量
     const wavBlob = await audioBufferToWav(renderedBuffer, use8Bit);
 
     onProgress?.(90, 'Finalizing...');

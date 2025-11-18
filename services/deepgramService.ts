@@ -132,6 +132,60 @@ export async function isDeepgramAvailable(): Promise<boolean> {
 }
 
 /**
+ * Log Deepgram response details for debugging
+ */
+function logDeepgramResponse(result: DeepgramResponse, mode: string): void {
+  console.log(`[Deepgram] Transcription complete (${mode})`);
+  console.log('[Deepgram] Response metadata:', {
+    duration: result.metadata.duration,
+    channels: result.metadata.channels,
+    requestId: result.metadata.request_id,
+  });
+  if (result.results.channels && result.results.channels.length > 0) {
+    const transcript = result.results.channels[0].alternatives[0]?.transcript || '';
+    const words = result.results.channels[0].alternatives[0]?.words || [];
+    console.log('[Deepgram] Transcription summary:', {
+      transcriptLength: transcript.length,
+      transcriptPreview: transcript.substring(0, 200),
+      wordCount: words.length,
+      firstWords: words.slice(0, 5).map(w => w.word).join(' '),
+      lastWords: words.slice(-5).map(w => w.word).join(' '),
+    });
+  }
+}
+
+/**
+ * Normalize language code for Deepgram API
+ * Deepgram uses specific language codes: 'zh' for Chinese, 'en' for English, etc.
+ */
+function normalizeLanguageCode(language?: string): string | undefined {
+  if (!language || language === 'auto') {
+    return undefined; // Deepgram will auto-detect
+  }
+  
+  // Normalize to Deepgram's language codes
+  const langLower = language.toLowerCase();
+  if (langLower.startsWith('zh')) {
+    return 'zh'; // Deepgram uses 'zh' for Chinese
+  } else if (langLower.startsWith('en')) {
+    return 'en';
+  } else if (langLower.startsWith('es')) {
+    return 'es';
+  } else if (langLower.startsWith('fr')) {
+    return 'fr';
+  } else if (langLower.startsWith('de')) {
+    return 'de';
+  } else if (langLower.startsWith('ja')) {
+    return 'ja';
+  } else if (langLower.startsWith('ko')) {
+    return 'ko';
+  }
+  
+  // For other languages, use as-is (Deepgram may support it)
+  return language;
+}
+
+/**
  * Generate subtitles using Deepgram API
  * Uses Nova-2 model for best accuracy/cost balance
  */
@@ -203,8 +257,13 @@ export async function generateSubtitlesWithDeepgram(
         utterances: 'false',
       });
 
-      if (language && language !== 'auto') {
-        params.append('language', language);
+      // 🎯 语言参数处理：标准化语言代码
+      const languageCode = normalizeLanguageCode(language);
+      if (languageCode) {
+        params.append('language', languageCode);
+        console.log('[Deepgram] 🌐 Language specified:', { input: language, normalized: languageCode });
+      } else {
+        console.log('[Deepgram] 🌐 Language auto-detection enabled (Deepgram will detect automatically)');
       }
 
       const contentType = file.type || 'video/mp4';
@@ -236,6 +295,7 @@ export async function generateSubtitlesWithDeepgram(
         const result: DeepgramResponse = await directResponse.json();
         onProgress?.(100);
         console.log('[Deepgram] ✅ Direct API call successful! No compression needed!');
+        logDeepgramResponse(result, 'direct call (no compression)');
         return result;
       } else {
         const errorText = await directResponse.text();
@@ -272,31 +332,35 @@ export async function generateSubtitlesWithDeepgram(
 
       onProgress?.(5);
       
-      // 🎯 智能压缩策略：根据文件大小选择合适的比特率和时长
-      // 对于超大文件，使用更激进的压缩
-      let targetBitrate = 32000; // 默认 32 kbps
+      // 🎯 智能压缩策略：根据文件大小选择合适的比特率
+      // ⚠️ 重要：提高压缩质量以确保识别准确性（8kbps太低会导致识别错误）
+      // 对于大文件，优先保证质量，如果压缩后仍然太大，会尝试直接调用或Storage
+      let targetBitrate = 32000; // 默认 32 kbps（高质量）
       let maxDuration: number | undefined = undefined;
       
-      if (fileSizeMB > 300) {
-        // 超超大文件（>300MB）：使用 8kbps + 限制时长为10分钟
-        targetBitrate = 8000;
-        maxDuration = 10 * 60; // 10 minutes
-        console.log('[Deepgram] 🔧 Using ultra-aggressive compression: 8kbps, max 10 minutes');
-      } else if (fileSizeMB > 200) {
-        // 超大文件（>200MB）：使用 8kbps + 限制时长为15分钟
-        targetBitrate = 8000;
-        maxDuration = 15 * 60; // 15 minutes
-        console.log('[Deepgram] 🔧 Using aggressive compression: 8kbps, max 15 minutes');
-      } else if (fileSizeMB > 100) {
-        // 大文件（>100MB）：使用 12kbps + 限制时长为20分钟
-        targetBitrate = 12000;
-        maxDuration = 20 * 60; // 20 minutes
-        console.log('[Deepgram] 🔧 Using medium compression: 12kbps, max 20 minutes');
-      } else if (fileSizeMB > 50) {
-        // 中等文件（>50MB）：使用 16kbps + 限制时长为25分钟
+      // 🎯 新策略：优先保证质量，不限制时长（处理完整视频）
+      // 如果压缩后仍然太大（>4MB），会通过直接调用Deepgram API处理（支持2GB）
+      if (fileSizeMB > 500) {
+        // 超大文件（>500MB）：使用 16kbps（最低质量要求），处理完整视频
         targetBitrate = 16000;
-        maxDuration = 25 * 60; // 25 minutes
-        console.log('[Deepgram] 🔧 Using light compression: 16kbps, max 25 minutes');
+        // 不限制时长，处理完整视频
+        console.log('[Deepgram] 🔧 Using balanced compression: 16kbps, processing full video');
+      } else if (fileSizeMB > 300) {
+        // 大文件（>300MB）：使用 20kbps，处理完整视频
+        targetBitrate = 20000;
+        console.log('[Deepgram] 🔧 Using moderate compression: 20kbps, processing full video');
+      } else if (fileSizeMB > 200) {
+        // 大文件（>200MB）：使用 24kbps，处理完整视频
+        targetBitrate = 24000;
+        console.log('[Deepgram] 🔧 Using light compression: 24kbps, processing full video');
+      } else if (fileSizeMB > 100) {
+        // 中等文件（>100MB）：使用 28kbps，处理完整视频
+        targetBitrate = 28000;
+        console.log('[Deepgram] 🔧 Using minimal compression: 28kbps, processing full video');
+      } else {
+        // 小文件（≤100MB）：使用 32kbps（高质量），处理完整视频
+        targetBitrate = 32000;
+        console.log('[Deepgram] 🔧 Using high quality: 32kbps, processing full video');
       }
       
       // Extract and compress audio
@@ -342,8 +406,13 @@ export async function generateSubtitlesWithDeepgram(
             utterances: 'false',
           });
 
-          if (language && language !== 'auto') {
-            params.append('language', language);
+          // 🎯 语言参数处理：标准化语言代码
+          const languageCode = normalizeLanguageCode(language);
+          if (languageCode) {
+            params.append('language', languageCode);
+            console.log('[Deepgram] 🌐 Language specified:', { input: language, normalized: languageCode });
+          } else {
+            console.log('[Deepgram] 🌐 Language auto-detection enabled');
           }
 
           const directUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
@@ -377,6 +446,7 @@ export async function generateSubtitlesWithDeepgram(
             
             console.log('[Deepgram] ✅✅✅ SUCCESS! Direct API call with compressed audio worked!');
             console.log('[Deepgram] 🎉 No Vercel proxy, no Storage, no login required!');
+            logDeepgramResponse(result, 'direct call (compressed audio)');
             return result;
           } else {
             const errorText = await directResponse.text();
@@ -404,7 +474,7 @@ export async function generateSubtitlesWithDeepgram(
             console.log('[Deepgram] Audio uploaded, using URL mode:', uploadResult.fileUrl);
 
             // Use Deepgram URL mode
-            const params = new URLSearchParams({
+            const urlParams = new URLSearchParams({
               model: 'nova-2',
               smart_format: 'true',
               punctuate: 'true',
@@ -412,12 +482,17 @@ export async function generateSubtitlesWithDeepgram(
               utterances: 'false',
             });
 
-            if (language && language !== 'auto') {
-              params.append('language', language);
+            // 🎯 语言参数处理：标准化语言代码
+            const urlLanguageCode = normalizeLanguageCode(language);
+            if (urlLanguageCode) {
+              urlParams.append('language', urlLanguageCode);
+              console.log('[Deepgram] 🌐 Language specified:', { input: language, normalized: urlLanguageCode });
+            } else {
+              console.log('[Deepgram] 🌐 Language auto-detection enabled');
             }
 
-            params.append('url_mode', 'true');
-            const proxyUrl = `/api/deepgram-proxy?${params.toString()}`;
+            urlParams.append('url_mode', 'true');
+            const proxyUrl = `/api/deepgram-proxy?${urlParams.toString()}`;
 
             // 使用带超时的fetch，并添加重试机制
             const response = await retryWithBackoff(
@@ -447,7 +522,7 @@ export async function generateSubtitlesWithDeepgram(
             const result: DeepgramResponse = await response.json();
             onProgress?.(100);
 
-            console.log('[Deepgram] Transcription complete (URL mode with compressed audio)');
+            logDeepgramResponse(result, 'URL mode (compressed audio)');
             return result;
           } catch (uploadError) {
             const uploadErrorMessage = uploadError instanceof Error ? uploadError.message : String(uploadError);
@@ -552,8 +627,13 @@ export async function generateSubtitlesWithDeepgram(
             utterances: 'false',
           });
 
-          if (language && language !== 'auto') {
-            params.append('language', language);
+          // 🎯 语言参数处理：标准化语言代码
+          const languageCode = normalizeLanguageCode(language);
+          if (languageCode) {
+            params.append('language', languageCode);
+            console.log('[Deepgram] 🌐 Language specified:', { input: language, normalized: languageCode });
+          } else {
+            console.log('[Deepgram] 🌐 Language auto-detection enabled');
           }
 
           const contentType = 'audio/wav';
@@ -586,6 +666,7 @@ export async function generateSubtitlesWithDeepgram(
             onProgress?.(100);
             console.log('[Deepgram] ✅✅✅ SUCCESS! Direct API call with compressed audio worked!');
             console.log('[Deepgram] 🎉 No Vercel proxy, no Storage, no login required!');
+            logDeepgramResponse(result, 'direct call (compressed audio, fallback)');
             return result;
           } else {
             const errorText = await directResponse.text();
@@ -640,9 +721,13 @@ export async function generateSubtitlesWithDeepgram(
     utterances: 'false',
   });
 
-  // Add language if specified
-  if (language && language !== 'auto') {
-    params.append('language', language);
+  // 🎯 语言参数处理：标准化语言代码
+  const languageCode = normalizeLanguageCode(language);
+  if (languageCode) {
+    params.append('language', languageCode);
+    console.log('[Deepgram] 🌐 Language specified:', { input: language, normalized: languageCode });
+  } else {
+    console.log('[Deepgram] 🌐 Language auto-detection enabled (Deepgram will detect automatically)');
   }
 
   // Determine content type - Deepgram accepts video files directly
@@ -682,6 +767,7 @@ export async function generateSubtitlesWithDeepgram(
       const result: DeepgramResponse = await directResponse.json();
       onProgress?.(100);
       console.log('[Deepgram] ✅ Direct API call successful! (bypassed Vercel)');
+      logDeepgramResponse(result, 'direct call (small file)');
       return result;
     } else {
       const errorText = await directResponse.text();
@@ -743,7 +829,8 @@ export async function generateSubtitlesWithDeepgram(
   const result: DeepgramResponse = await response.json();
   onProgress?.(100);
 
-  console.log('[Deepgram] Transcription complete (proxy mode)');
+  // 🎯 记录Deepgram返回的详细信息，便于诊断问题
+  logDeepgramResponse(result, 'proxy mode');
 
   return result;
 }
@@ -751,35 +838,83 @@ export async function generateSubtitlesWithDeepgram(
 /**
  * Convert Deepgram response to segments
  * Groups words into ~5-second segments for better readability
+ * Filters out duplicate and invalid content
  */
 export function deepgramToSegments(response: DeepgramResponse): DeepgramSegment[] {
   if (!response.results.channels || response.results.channels.length === 0) {
+    console.warn('[Deepgram] No channels in response');
     return [];
   }
 
   const words = response.results.channels[0].alternatives[0].words;
   if (!words || words.length === 0) {
+    console.warn('[Deepgram] No words in response');
+    // Fallback to transcript if available
+    const transcript = response.results.channels[0]?.alternatives[0]?.transcript;
+    if (transcript) {
+      console.log('[Deepgram] Using transcript as fallback:', transcript.substring(0, 100));
+      return [{
+        start: 0,
+        end: response.metadata.duration || 10,
+        text: transcript.trim(),
+      }];
+    }
     return [];
   }
+
+  console.log('[Deepgram] Processing words:', {
+    totalWords: words.length,
+    duration: response.metadata.duration,
+    firstWord: words[0]?.word,
+    lastWord: words[words.length - 1]?.word,
+  });
 
   const segments: DeepgramSegment[] = [];
   const MAX_SEGMENT_DURATION = 5.0; // 5 seconds per segment
   const MAX_WORDS_PER_SEGMENT = 15; // Max words per segment
 
+  // Filter out invalid words (empty, too short, or duplicate consecutive words)
+  const validWords = words.filter((word, index) => {
+    if (!word.word || word.word.trim().length === 0) {
+      return false;
+    }
+    // Filter out duplicate consecutive words (likely recognition errors)
+    if (index > 0 && word.word === words[index - 1].word && 
+        Math.abs(word.start - words[index - 1].start) < 0.5) {
+      return false;
+    }
+    return true;
+  });
+
+  if (validWords.length === 0) {
+    console.warn('[Deepgram] No valid words after filtering');
+    return [];
+  }
+
+  console.log('[Deepgram] Valid words after filtering:', {
+    original: words.length,
+    valid: validWords.length,
+    filtered: words.length - validWords.length,
+  });
+
   let currentSegment: DeepgramSegment = {
-    start: words[0].start,
-    end: words[0].end,
-    text: words[0].word,
+    start: validWords[0].start,
+    end: validWords[0].end,
+    text: validWords[0].word,
   };
 
-  for (let i = 1; i < words.length; i++) {
-    const word = words[i];
+  for (let i = 1; i < validWords.length; i++) {
+    const word = validWords[i];
     const segmentDuration = word.end - currentSegment.start;
-    const wordCount = currentSegment.text.split(' ').length;
+    const wordCount = currentSegment.text.split(/\s+/).length;
 
     // Start new segment if duration or word count exceeds limit
     if (segmentDuration > MAX_SEGMENT_DURATION || wordCount >= MAX_WORDS_PER_SEGMENT) {
-      segments.push(currentSegment);
+      // Only add segment if it has meaningful content
+      const trimmedText = currentSegment.text.trim();
+      if (trimmedText.length > 0 && trimmedText.length < 200) { // Filter out extremely long segments (likely errors)
+        segments.push(currentSegment);
+      }
       currentSegment = {
         start: word.start,
         end: word.end,
@@ -793,9 +928,16 @@ export function deepgramToSegments(response: DeepgramResponse): DeepgramSegment[
   }
 
   // Add last segment
-  if (currentSegment.text) {
+  const trimmedText = currentSegment.text.trim();
+  if (trimmedText.length > 0 && trimmedText.length < 200) {
     segments.push(currentSegment);
   }
+
+  console.log('[Deepgram] Generated segments:', {
+    count: segments.length,
+    totalDuration: segments.length > 0 ? segments[segments.length - 1].end : 0,
+    averageDuration: segments.length > 0 ? segments.reduce((sum, s) => sum + (s.end - s.start), 0) / segments.length : 0,
+  });
 
   return segments;
 }
