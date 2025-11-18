@@ -115,18 +115,99 @@ export default async function handler(
         keySource: req.headers['x-deepgram-api-key'] ? 'user' : 'system'
       });
 
+      // 🎯 添加超时控制（URL模式通常需要更长时间）
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 600000); // 10分钟超时
+
+      try {
+        const response = await fetch(deepgramUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ url: body.url }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[Deepgram Proxy] API error (URL mode):', {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorText
+          });
+          return res.status(response.status).json({ 
+            error: `Deepgram API error (${response.status}): ${response.statusText}`,
+            details: errorText
+          });
+        }
+
+        const data = await response.json();
+        
+        // Set CORS headers
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        
+        return res.status(200).json(data);
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        if (fetchError.name === 'AbortError') {
+          console.error('[Deepgram Proxy] Request timeout (URL mode)');
+          return res.status(504).json({ 
+            error: '请求超时。请稍后再试。',
+            details: 'Request timed out. Please try again later.'
+          });
+        }
+        throw fetchError;
+      }
+    }
+
+    // Direct file upload mode (for small files)
+    // Get content type from request
+    const contentType = req.headers['content-type'] || 'video/mp4';
+
+    console.log('[Deepgram Proxy] Direct mode - forwarding file content:', {
+      url: deepgramUrl,
+      contentType,
+      hasApiKey: !!apiKey,
+      keySource: req.headers['x-deepgram-api-key'] ? 'user' : 'system'
+    });
+
+    // Forward the request to Deepgram API
+    // 🎯 添加超时控制（根据文件大小动态调整）
+    const contentLength = req.headers['content-length'] ? parseInt(req.headers['content-length'], 10) : 0;
+    const fileSizeMB = contentLength / (1024 * 1024);
+    
+    // 根据文件大小计算超时时间
+    let timeoutMs = 60000; // 默认60秒
+    if (fileSizeMB > 100) {
+      timeoutMs = 300000; // 大文件：5分钟
+    } else if (fileSizeMB > 10) {
+      timeoutMs = 120000; // 中等文件：2分钟
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
       const response = await fetch(deepgramUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Token ${apiKey}`,
-          'Content-Type': 'application/json',
+          'Content-Type': contentType,
         },
-        body: JSON.stringify({ url: body.url }),
+        // @ts-ignore - Vercel handles the body properly
+        body: req,
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('[Deepgram Proxy] API error (URL mode):', {
+        console.error('[Deepgram Proxy] API error (direct mode):', {
           status: response.status,
           statusText: response.statusText,
           error: errorText
@@ -142,51 +223,22 @@ export default async function handler(
       // Set CORS headers
       res.setHeader('Access-Control-Allow-Origin', '*');
       
+      // Return the transcription
       return res.status(200).json(data);
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        console.error('[Deepgram Proxy] Request timeout (direct mode):', {
+          fileSizeMB: fileSizeMB.toFixed(2),
+          timeoutMs
+        });
+        return res.status(504).json({ 
+          error: '请求超时。请稍后再试。',
+          details: `Request timed out after ${timeoutMs / 1000}s. Please try again later.`
+        });
+      }
+      throw fetchError;
     }
-
-    // Direct file upload mode (for small files)
-    // Get content type from request
-    const contentType = req.headers['content-type'] || 'video/mp4';
-
-    console.log('[Deepgram Proxy] Direct mode - forwarding file content:', {
-      url: deepgramUrl,
-      contentType,
-      hasApiKey: !!apiKey,
-      keySource: req.headers['x-deepgram-api-key'] ? 'user' : 'system'
-    });
-
-    // Forward the request to Deepgram API
-    const response = await fetch(deepgramUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${apiKey}`,
-        'Content-Type': contentType,
-      },
-      // @ts-ignore - Vercel handles the body properly
-      body: req,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[Deepgram Proxy] API error (direct mode):', {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorText
-      });
-      return res.status(response.status).json({ 
-        error: `Deepgram API error (${response.status}): ${response.statusText}`,
-        details: errorText
-      });
-    }
-
-    const data = await response.json();
-    
-    // Set CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    
-    // Return the transcription
-    return res.status(200).json(data);
   } catch (error) {
     console.error('[Deepgram Proxy] Error:', error);
     return res.status(500).json({ 

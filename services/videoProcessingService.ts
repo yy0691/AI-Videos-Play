@@ -327,12 +327,12 @@ async function runVisualSubtitleGeneration(
 }
 
 export async function generateResilientSubtitles(
-  options: SubtitleGenerationOptions,
+  options: SubtitleGenerationOptions & { skipCache?: boolean },
 ): Promise<SubtitleGenerationResult> {
-  const { video, videoHash, onStatus, onPartialSubtitles } = options;
+  const { video, videoHash, onStatus, onPartialSubtitles, skipCache = false } = options;
 
   onStatus?.({ stage: 'Checking cache...', progress: 5 });
-  if (videoHash) {
+  if (videoHash && !skipCache) {
     const cached = await getCachedSubtitles(videoHash, { includePartial: true });
     if (cached) {
       const status: SubtitleCacheStatus = cached.status ?? 'complete';
@@ -354,24 +354,42 @@ export async function generateResilientSubtitles(
         }
       }
     }
+  } else if (skipCache && videoHash) {
+    console.log('[Subtitle] ⚠️ Skipping cache - regenerating subtitles');
   }
 
   onStatus?.({ stage: 'Inspecting media tracks...', progress: 8 });
   let metadata: VideoMetadataProfile | null = null;
   try {
     metadata = await analyzeVideoMetadata(video.file);
-    console.log('Media profile:', {
+    console.log('[Subtitle] Media profile:', {
       duration: metadata.duration,
       averageLoudness: metadata.averageLoudness.toFixed(3),
       silenceRatio: metadata.silenceRatio,
+      hasAudioTrack: metadata.hasAudioTrack,
       pipeline: metadata.recommendedPipeline,
     });
+    
+    // 🎯 警告：如果检测到静音但视频时长较长，可能是误判
+    // 对于长视频（>30分钟），即使检测到静音也优先尝试Deepgram
+    if (metadata.silenceRatio >= 0.75 && metadata.duration > 1800) {
+      console.warn('[Subtitle] ⚠️ High silence ratio detected but video is long. May be false positive. Will still try Deepgram first.');
+    }
   } catch (error) {
     console.warn('Failed to analyse video metadata. Continuing with default pipeline.', error);
   }
 
   const pipelineRecommendation = metadata?.recommendedPipeline ?? 'audio';
   const hasAudioTrack = metadata?.hasAudioTrack ?? true; // Default to true if metadata unavailable
+  
+  // 🎯 对于长视频（>30分钟），即使检测到静音也优先尝试音频管道（Deepgram）
+  // 因为音频检测可能误判，而Deepgram可以处理完整的音频轨道
+  const shouldForceAudioPipeline = metadata && metadata.duration > 1800 && hasAudioTrack;
+  
+  if (shouldForceAudioPipeline && pipelineRecommendation === 'visual') {
+    console.log('[Subtitle] 🎯 Long video detected. Forcing audio pipeline despite visual recommendation.');
+  }
+  
   let visualAttempted = false;
 
   const attemptVisual = async (message: string): Promise<SubtitleGenerationResult> => {
@@ -380,13 +398,19 @@ export async function generateResilientSubtitles(
     return await runVisualSubtitleGeneration({ ...options, metadata: resolveMetadataFallback(video, metadata) });
   };
 
-  // 优先使用音频生成字幕：如果有音频轨道，即使推荐管道是visual，也先尝试音频管道
-  if (hasAudioTrack && pipelineRecommendation !== 'audio') {
-    console.log('[Subtitle] Audio track detected. Prioritizing audio-based transcription over visual pipeline.');
+  // 🎯 优先使用音频生成字幕：如果有音频轨道，即使推荐管道是visual，也先尝试音频管道
+  // 对于长视频，即使检测到静音也强制使用音频管道（Deepgram可以处理完整音频）
+  if (hasAudioTrack && (pipelineRecommendation !== 'audio' || shouldForceAudioPipeline)) {
+    if (shouldForceAudioPipeline) {
+      console.log('[Subtitle] 🎯 Long video with audio track. Forcing audio pipeline (Deepgram) despite visual recommendation.');
+    } else {
+      console.log('[Subtitle] Audio track detected. Prioritizing audio-based transcription over visual pipeline.');
+    }
     onStatus?.({ stage: 'Audio track detected. Using speech pipeline...', progress: 12 });
   } else if (pipelineRecommendation === 'visual') {
     // 只有在没有音频轨道时才直接使用视觉管道
     if (!hasAudioTrack) {
+      console.log('[Subtitle] No audio track detected. Using visual pipeline.');
       try {
         return await attemptVisual('No audio track detected. Switching to visual analysis...');
       } catch (error) {
@@ -394,6 +418,7 @@ export async function generateResilientSubtitles(
         onStatus?.({ stage: 'Visual analysis failed. Falling back to audio transcription...', progress: 35 });
       }
     } else {
+      console.log('[Subtitle] Audio track detected. Using speech pipeline despite visual recommendation.');
       onStatus?.({ stage: 'Audio track detected. Using speech pipeline...', progress: 12 });
     }
   } else if (pipelineRecommendation === 'hybrid') {

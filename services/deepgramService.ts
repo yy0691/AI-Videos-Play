@@ -4,6 +4,7 @@
  */
 
 import { getEffectiveSettings } from './dbService';
+import { fetchWithTimeout, retryWithBackoff } from '../utils/helpers';
 
 // System default Deepgram API key (from environment variable)
 // Users can override this in settings
@@ -150,12 +151,27 @@ export async function generateSubtitlesWithDeepgram(
   const VERCEL_SIZE_LIMIT_MB = 4; // Vercel has 4.5MB limit, use 4MB for safety
   const DEEPGRAM_DIRECT_LIMIT_MB = 2000; // Deepgram API supports up to 2GB for direct calls
 
+  // 🎯 根据文件大小动态计算超时时间
+  // 小文件（<10MB）：60秒
+  // 中等文件（10-100MB）：120秒
+  // 大文件（100-500MB）：300秒
+  // 超大文件（>500MB）：600秒
+  const calculateTimeout = (sizeMB: number): number => {
+    if (sizeMB < 10) return 60000;      // 60秒
+    if (sizeMB < 100) return 120000;    // 120秒
+    if (sizeMB < 500) return 300000;    // 300秒
+    return 600000;                      // 600秒（10分钟）
+  };
+
+  const requestTimeout = calculateTimeout(fileSizeMB);
+
   console.log('[Deepgram] Transcribing with Nova-2 model...', {
     fileSize: `${fileSizeMB.toFixed(2)}MB`,
     fileType: file.type,
     language,
     willNeedCompression: fileSizeMB > VERCEL_SIZE_LIMIT_MB,
-    canUseDirectMode: fileSizeMB <= DEEPGRAM_DIRECT_LIMIT_MB
+    canUseDirectMode: fileSizeMB <= DEEPGRAM_DIRECT_LIMIT_MB,
+    timeout: `${requestTimeout / 1000}s`
   });
 
   // 🎯 策略：
@@ -196,14 +212,23 @@ export async function generateSubtitlesWithDeepgram(
       
       console.log('[Deepgram] 📤 Uploading to Deepgram directly (no compression needed)...');
       
-      const directResponse = await fetch(directUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Token ${apiKey}`,
-          'Content-Type': contentType,
-        },
-        body: file,
-      });
+      // 使用带超时的fetch，并添加重试机制
+      const directResponse = await retryWithBackoff(
+        () => fetchWithTimeout(
+          directUrl,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Token ${apiKey}`,
+              'Content-Type': contentType,
+            },
+            body: file,
+          },
+          requestTimeout
+        ),
+        2, // 最多重试2次（总共3次尝试）
+        2000 // 基础延迟2秒
+      );
 
       onProgress?.(90);
 
@@ -336,14 +361,23 @@ export async function generateSubtitlesWithDeepgram(
           params.append('url_mode', 'true');
           const proxyUrl = `/api/deepgram-proxy?${params.toString()}`;
 
-          const response = await fetch(proxyUrl, {
-            method: 'POST',
-            headers: {
-              'X-Deepgram-API-Key': apiKey,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ url: uploadResult.fileUrl }),
-          });
+          // 使用带超时的fetch，并添加重试机制
+          const response = await retryWithBackoff(
+            () => fetchWithTimeout(
+              proxyUrl,
+              {
+                method: 'POST',
+                headers: {
+                  'X-Deepgram-API-Key': apiKey,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ url: uploadResult.fileUrl }),
+              },
+              requestTimeout
+            ),
+            2, // 最多重试2次（总共3次尝试）
+            2000 // 基础延迟2秒
+          );
 
           onProgress?.(90);
 
@@ -458,14 +492,23 @@ export async function generateSubtitlesWithDeepgram(
           
           console.log('[Deepgram] 📤 Uploading compressed audio directly to Deepgram...');
           
-          const directResponse = await fetch(directUrl, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Token ${apiKey}`,
-              'Content-Type': contentType,
-            },
-            body: file,
-          });
+          // 使用带超时的fetch，并添加重试机制
+          const directResponse = await retryWithBackoff(
+            () => fetchWithTimeout(
+              directUrl,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Token ${apiKey}`,
+                  'Content-Type': contentType,
+                },
+                body: file,
+              },
+              requestTimeout
+            ),
+            2, // 最多重试2次（总共3次尝试）
+            2000 // 基础延迟2秒
+          );
 
           onProgress?.(90);
 
@@ -545,14 +588,24 @@ export async function generateSubtitlesWithDeepgram(
     });
 
     const directUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
-    const directResponse = await fetch(directUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${apiKey}`,
-        'Content-Type': contentType,
-      },
-      body: file,
-    });
+    
+    // 使用带超时的fetch，并添加重试机制
+    const directResponse = await retryWithBackoff(
+      () => fetchWithTimeout(
+        directUrl,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${apiKey}`,
+            'Content-Type': contentType,
+          },
+          body: file,
+        },
+        requestTimeout
+      ),
+      2, // 最多重试2次（总共3次尝试）
+      2000 // 基础延迟2秒
+    );
 
     onProgress?.(90);
 
@@ -587,15 +640,23 @@ export async function generateSubtitlesWithDeepgram(
     keySource: settings.deepgramApiKey ? 'user' : 'system'
   });
 
-  // Call Deepgram API through proxy
-  const response = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: {
-      'X-Deepgram-API-Key': apiKey,
-      'Content-Type': contentType,
-    },
-    body: file,
-  });
+  // Call Deepgram API through proxy (使用带超时的fetch，并添加重试机制)
+  const response = await retryWithBackoff(
+    () => fetchWithTimeout(
+      proxyUrl,
+      {
+        method: 'POST',
+        headers: {
+          'X-Deepgram-API-Key': apiKey,
+          'Content-Type': contentType,
+        },
+        body: file,
+      },
+      requestTimeout
+    ),
+    2, // 最多重试2次（总共3次尝试）
+    2000 // 基础延迟2秒
+  );
 
   onProgress?.(90);
 

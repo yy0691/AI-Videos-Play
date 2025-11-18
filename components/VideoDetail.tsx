@@ -5,7 +5,7 @@ import { subtitleDB } from '../services/dbService';
 import { saveSubtitles } from '../services/subtitleService';
 import { translateSubtitles as translateSubtitlesLegacy } from '../services/geminiService';
 import { translateSubtitles, detectSubtitleLanguage, isTraditionalChinese } from '../services/translationService';
-import { generateVideoHash } from '../services/cacheService';
+import { generateVideoHash, clearVideoCache } from '../services/cacheService';
 import { generateResilientSubtitles, generateResilientInsights } from '../services/videoProcessingService';
 import { isSegmentedProcessingAvailable } from '../services/segmentedProcessor';
 import { isDeepgramAvailable } from '../services/deepgramService';
@@ -84,6 +84,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
   const [clickedSegmentIndex, setClickedSegmentIndex] = useState<number | null>(null);
   const [showTranslationLanguageModal, setShowTranslationLanguageModal] = useState(false);
   const [isTranslationFromUser, setIsTranslationFromUser] = useState(false);
+  const [showRegenerateConfirmModal, setShowRegenerateConfirmModal] = useState(false);
   
   const [generationStatus, setGenerationStatus] = useState({ active: false, stage: '', progress: 0 });
   const [streamingSubtitles, setStreamingSubtitles] = useState(''); // For real-time subtitle display
@@ -374,7 +375,22 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
     }
   };
   
-  const handleGenerateSubtitles = async () => {
+  const handleRegenerateSubtitles = async () => {
+    if (isGeneratingSubtitles) {
+      return;
+    }
+
+    // Clear cache before regenerating
+    if (videoHash) {
+      await clearVideoCache(videoHash);
+      console.log('[Subtitle] 🧹 Cleared cache for regeneration');
+    }
+
+    // Call the original generate function with skipCache flag
+    await handleGenerateSubtitles(true);
+  };
+
+  const handleGenerateSubtitles = async (skipCache: boolean = false) => {
     // Prevent duplicate calls
     if (isGeneratingSubtitles) {
       console.log('Subtitle generation already in progress, ignoring duplicate call');
@@ -473,6 +489,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         videoHash,
         prompt,
         sourceLanguage,
+        skipCache,
         onStatus: ({ stage, progress }) => setGenerationStatus({ active: true, stage, progress }),
         onStreamText: (text) => setStreamingSubtitles(text),
         onPartialSubtitles: async (segments) => {
@@ -769,6 +786,19 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
                       )}
                       <button
                         className="inline-flex items-center justify-center rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition"
+                        onClick={() => setShowRegenerateConfirmModal(true)}
+                        disabled={isGeneratingSubtitles || isTranslating}
+                        title={language === 'zh' ? '重新生成字幕' : 'Regenerate Subtitles'}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                          <path d="M21 3v5h-5"/>
+                          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+                          <path d="M3 21v-5h5"/>
+                        </svg>
+                      </button>
+                      <button
+                        className="inline-flex items-center justify-center rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition"
                         onClick={() => downloadFile(segmentsToSrt(subtitles.segments), `${video.name}.srt`, 'text/plain')}
                         title={language === 'zh' ? '下载字幕' : 'Download'}
                       >
@@ -1044,6 +1074,43 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
                 <div className="font-medium text-slate-900">English</div>
                 <div className="text-xs text-slate-500 mt-0.5">英语</div>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 重新生成字幕确认对话框 */}
+      {showRegenerateConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-900">
+                {language === 'zh' ? '重新生成字幕' : 'Regenerate Subtitles'}
+              </h3>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-slate-600 mb-4">
+                {language === 'zh' 
+                  ? '确定要重新生成字幕吗？这将清除当前字幕并重新生成，可能需要一些时间。'
+                  : 'Are you sure you want to regenerate subtitles? This will clear the current subtitles and regenerate them, which may take some time.'}
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowRegenerateConfirmModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition"
+                >
+                  {language === 'zh' ? '取消' : 'Cancel'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setShowRegenerateConfirmModal(false);
+                    await handleRegenerateSubtitles();
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition"
+                >
+                  {language === 'zh' ? '确认重新生成' : 'Confirm Regenerate'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

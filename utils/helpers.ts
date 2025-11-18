@@ -563,3 +563,94 @@ export const segmentsToSrt = (segments: SubtitleSegment[]): string => {
     return `${index + 1}\n${startTime} --> ${endTime}\n${segment.text}`;
   }).join('\n\n');
 };
+
+/**
+ * Fetch with timeout support
+ * @param url - The URL to fetch
+ * @param options - Fetch options
+ * @param timeoutMs - Timeout in milliseconds
+ * @returns Promise<Response>
+ */
+export async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = 60000
+): Promise<Response> {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller?.signal,
+    });
+
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
+    return response;
+  } catch (error) {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
+    if ((error as DOMException)?.name === 'AbortError') {
+      throw new Error(`请求超时（${timeoutMs / 1000}秒）。请稍后再试。\nRequest timed out (${timeoutMs / 1000}s). Please try again later.`);
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * Retry a function with exponential backoff
+ * @param fn - Function to retry
+ * @param maxRetries - Maximum number of retries
+ * @param baseDelayMs - Base delay in milliseconds
+ * @returns Promise<T>
+ */
+export async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 1000
+): Promise<T> {
+  let lastError: Error | unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      // Don't retry on the last attempt
+      if (attempt === maxRetries) {
+        break;
+      }
+
+      // Check if error is retryable (timeout, network error, 5xx errors)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isRetryable = 
+        errorMessage.includes('超时') ||
+        errorMessage.includes('timeout') ||
+        errorMessage.includes('504') ||
+        errorMessage.includes('502') ||
+        errorMessage.includes('503') ||
+        errorMessage.includes('Failed to fetch') ||
+        errorMessage.includes('NetworkError');
+
+      if (!isRetryable) {
+        // Don't retry non-retryable errors
+        throw error;
+      }
+
+      // Exponential backoff: 1s, 2s, 4s...
+      const delayMs = baseDelayMs * Math.pow(2, attempt);
+      console.log(`[Retry] Attempt ${attempt + 1} failed, retrying in ${delayMs}ms...`);
+      
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError;
+}

@@ -38,13 +38,13 @@ export async function generateSubtitlesIntelligent(
   const startTime = Date.now();
   const fileSizeMB = file.size / (1024 * 1024);
 
-  console.log(`[Router] Starting intelligent routing for ${fileSizeMB.toFixed(1)}MB file`);
+  console.log(`[Router] 🚀 Starting intelligent routing for ${fileSizeMB.toFixed(1)}MB file`);
 
   // Check which services are available
-  console.log('[Router] Checking available services...');
+  console.log('[Router] 🔍 Checking available services...');
   const deepgramAvailable = await isDeepgramAvailable();
 
-  console.log('[Router] Available services:', {
+  console.log('[Router] ✅ Available services:', {
     deepgram: deepgramAvailable,
   });
 
@@ -58,7 +58,12 @@ export async function generateSubtitlesIntelligent(
   
   if (deepgramAvailable && fileSizeMB <= DEEPGRAM_SIZE_LIMIT_MB) {
     try {
-      console.log('[Router] Attempting Deepgram (high quality)...');
+      console.log('[Router] 🎯 Attempting Deepgram (high quality)...');
+      console.log('[Router] 📊 Deepgram request details:', {
+        fileSize: `${fileSizeMB.toFixed(2)}MB`,
+        language: language || 'auto',
+        timestamp: new Date().toISOString()
+      });
       onProgress?.(0, 'Using Deepgram (high quality)...');
 
       // Adapt onProgress: generateSubtitlesWithDeepgram expects (progress: number) => void
@@ -69,10 +74,13 @@ export async function generateSubtitlesIntelligent(
 
       const result = await generateSubtitlesWithDeepgram(file, language, adaptedOnProgress);
       const srtContent = deepgramToSrt(result);
+      
+      // 🎯 记录Deepgram返回的字幕数量
+      const segments = parseSrt(srtContent);
+      console.log(`[Router] ✅ Deepgram succeeded in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+      console.log(`[Router] 📝 Generated ${segments.length} subtitle segments`);
 
       const processingTimeMs = Date.now() - startTime;
-      console.log(`[Router] ✅ Deepgram succeeded in ${(processingTimeMs / 1000).toFixed(1)}s`);
-
       return {
         srtContent,
         usedService: 'deepgram',
@@ -81,7 +89,7 @@ export async function generateSubtitlesIntelligent(
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[Router] ❌ Deepgram failed:', errorMessage);
-      console.error('[Router] Full error:', error);
+      console.error('[Router] 📋 Full error details:', error);
       // Continue to next strategy
     }
   } else if (!deepgramAvailable) {

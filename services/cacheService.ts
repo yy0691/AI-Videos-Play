@@ -222,6 +222,34 @@ export async function cacheAnalysis(
 }
 
 /**
+ * Clear cache for a specific video hash
+ */
+export async function clearVideoCache(videoHash: string): Promise<void> {
+  const db = await getDB();
+  
+  // Clear subtitle cache
+  try {
+    await db.delete('subtitle-cache', videoHash);
+    console.log(`🧹 Cleared subtitle cache for video hash: ${videoHash.substring(0, 8)}...`);
+  } catch (error) {
+    console.warn('Failed to clear subtitle cache:', error);
+  }
+  
+  // Clear analysis cache (analyses are also keyed by video hash)
+  try {
+    const analyses = await db.getAll('analysis-cache');
+    for (const entry of analyses) {
+      if (entry.hash === videoHash) {
+        await db.delete('analysis-cache', entry.hash);
+      }
+    }
+    console.log(`🧹 Cleared analysis cache for video hash: ${videoHash.substring(0, 8)}...`);
+  } catch (error) {
+    console.warn('Failed to clear analysis cache:', error);
+  }
+}
+
+/**
  * Clear old cache entries (older than 30 days)
  */
 export async function clearOldCache(): Promise<void> {
