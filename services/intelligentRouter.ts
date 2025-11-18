@@ -1,10 +1,9 @@
 /**
  * Intelligent Speech-to-Text Router
  * Automatically selects the best available service with smart fallback chain:
- * 1. Deepgram (generous $200 free tier, high quality)
- * 2. Chunked processing with Deepgram
- * 3. Gemini direct processing
- * 4. Gemini segmented processing (ultimate fallback)
+ * 1. Deepgram (generous $200 free tier, high quality, supports up to 2GB files)
+ * 2. Gemini direct processing (for smaller files < 50MB)
+ * 3. Gemini segmented processing (ultimate fallback)
  */
 
 import { isDeepgramAvailable, generateSubtitlesWithDeepgram, deepgramToSrt } from './deepgramService';
@@ -15,7 +14,7 @@ import { Video, SubtitleSegment } from '../types';
 
 export interface RouterResult {
   srtContent: string;
-  usedService: 'deepgram' | 'deepgram-chunked' | 'gemini' | 'gemini-segmented';
+  usedService: 'deepgram' | 'gemini' | 'gemini-segmented';
   processingTimeMs: number;
 }
 
@@ -53,8 +52,8 @@ export async function generateSubtitlesIntelligent(
   }
 
   // Strategy 1: Try Deepgram for files (Deepgram handles large files well)
-  // Deepgram can process files up to 2GB, so we set a generous limit
-  const DEEPGRAM_SIZE_LIMIT_MB = 500;
+  // Deepgram can process files up to 2GB directly via API
+  const DEEPGRAM_SIZE_LIMIT_MB = 2000; // 2GB limit (Deepgram API maximum)
   
   if (deepgramAvailable && fileSizeMB <= DEEPGRAM_SIZE_LIMIT_MB) {
     try {
@@ -98,34 +97,35 @@ export async function generateSubtitlesIntelligent(
     console.log(`[Router] ⚠️ File too large for direct Deepgram (${fileSizeMB.toFixed(1)}MB > ${DEEPGRAM_SIZE_LIMIT_MB}MB)`);
   }
 
-  // Strategy 2: For extremely large files, try chunked processing with Deepgram
-  if (fileSizeMB > DEEPGRAM_SIZE_LIMIT_MB && video && deepgramAvailable) {
-    try {
-      console.log('[Router] File too large for direct processing, attempting chunked approach...');
-      onProgress?.(0, 'Splitting and processing in chunks...');
-
-      const result = await processFileInChunks(
-        file,
-        video,
-        language,
-        'deepgram',
-        onProgress
-      );
-
-      const processingTimeMs = Date.now() - startTime;
-      const service = 'deepgram-chunked';
-      console.log(`[Router] ✅ Chunked processing (${service}) succeeded in ${(processingTimeMs / 1000).toFixed(1)}s`);
-
-      return {
-        srtContent: result,
-        usedService: service,
-        processingTimeMs,
-      };
-    } catch (error) {
-      console.warn('[Router] Chunked processing failed:', error);
-      // Continue to fallback
-    }
-  }
+  // Strategy 2: FFmpeg chunked processing (DEPRECATED - not used anymore)
+  // Deepgram can handle files up to 2GB directly, so chunking is no longer needed
+  // if (fileSizeMB > DEEPGRAM_SIZE_LIMIT_MB && video && deepgramAvailable) {
+  //   try {
+  //     console.log('[Router] File too large for direct processing, attempting chunked approach...');
+  //     onProgress?.(0, 'Splitting and processing in chunks...');
+  //
+  //     const result = await processFileInChunks(
+  //       file,
+  //       video,
+  //       language,
+  //       'deepgram',
+  //       onProgress
+  //     );
+  //
+  //     const processingTimeMs = Date.now() - startTime;
+  //     const service = 'deepgram-chunked';
+  //     console.log(`[Router] ✅ Chunked processing (${service}) succeeded in ${(processingTimeMs / 1000).toFixed(1)}s`);
+  //
+  //     return {
+  //       srtContent: result,
+  //       usedService: service,
+  //       processingTimeMs,
+  //     };
+  //   } catch (error) {
+  //     console.warn('[Router] Chunked processing failed:', error);
+  //     // Continue to fallback
+  //   }
+  // }
 
   // Strategy 3: Fallback to Gemini (single file)
   if (!video || fileSizeMB <= 50) {
@@ -258,70 +258,71 @@ export async function generateSubtitlesIntelligent(
 }
 
 /**
- * Process large files by chunking with FFmpeg
+ * Process large files by chunking with FFmpeg (DEPRECATED - not used anymore)
+ * Deepgram can handle files up to 2GB directly, so this function is no longer needed
  */
-async function processFileInChunks(
-  file: File | Blob,
-  video: Video,
-  language: string | undefined,
-  service: 'deepgram',
-  onProgress?: (progress: number, stage: string) => void
-): Promise<string> {
-  const { splitVideoIntoSegments } = await import('./videoSplitterService');
-
-  // Split into 10-minute chunks
-  const segmentDuration = 600; // 10 minutes
-  onProgress?.(5, 'Splitting video into chunks...');
-
-  // Convert Blob to File if necessary (splitVideoIntoSegments requires File)
-  const fileToSplit = file instanceof File 
-    ? file 
-    : new File([file], 'video.mp4', { type: file.type || 'video/mp4' });
-
-  const segments = await splitVideoIntoSegments(
-    fileToSplit,
-    segmentDuration,
-    (splitProgress, stage) => {
-      onProgress?.(5 + splitProgress * 0.2, stage || 'Splitting video...');
-    }
-  );
-
-  console.log(`[Router] Split into ${segments.length} chunks`);
-
-  // Process each chunk
-  const results: Array<{ start: number; srt: string }> = [];
-  const totalSegments = segments.length;
-
-  for (let i = 0; i < segments.length; i++) {
-    const segment = segments[i];
-    const progressBase = 25 + (i / totalSegments) * 70;
-
-    onProgress?.(progressBase, `Processing chunk ${i + 1}/${totalSegments}...`);
-
-    try {
-      const result = await generateSubtitlesWithDeepgram(
-        segment.file,
-        language,
-        (p) => onProgress?.(progressBase + (p * 0.7) / totalSegments, `Chunk ${i + 1}/${totalSegments}`)
-      );
-      const srtContent = deepgramToSrt(result);
-
-      // Adjust timestamps
-      const adjustedSrt = adjustSrtTimestamps(srtContent, segment.startTime);
-      results.push({ start: segment.startTime, srt: adjustedSrt });
-
-    } catch (error) {
-      console.error(`[Router] Failed to process chunk ${i + 1}:`, error);
-      throw error;
-    }
-  }
-
-  // Merge all SRT results
-  onProgress?.(95, 'Merging results...');
-  const mergedSrt = mergeSrtFiles(results.map(r => r.srt));
-
-  return mergedSrt;
-}
+// async function processFileInChunks(
+//   file: File | Blob,
+//   video: Video,
+//   language: string | undefined,
+//   service: 'deepgram',
+//   onProgress?: (progress: number, stage: string) => void
+// ): Promise<string> {
+//   const { splitVideoIntoSegments } = await import('./videoSplitterService');
+//
+//   // Split into 10-minute chunks
+//   const segmentDuration = 600; // 10 minutes
+//   onProgress?.(5, 'Splitting video into chunks...');
+//
+//   // Convert Blob to File if necessary (splitVideoIntoSegments requires File)
+//   const fileToSplit = file instanceof File 
+//     ? file 
+//     : new File([file], 'video.mp4', { type: file.type || 'video/mp4' });
+//
+//   const segments = await splitVideoIntoSegments(
+//     fileToSplit,
+//     segmentDuration,
+//     (splitProgress, stage) => {
+//       onProgress?.(5 + splitProgress * 0.2, stage || 'Splitting video...');
+//     }
+//   );
+//
+//   console.log(`[Router] Split into ${segments.length} chunks`);
+//
+//   // Process each chunk
+//   const results: Array<{ start: number; srt: string }> = [];
+//   const totalSegments = segments.length;
+//
+//   for (let i = 0; i < segments.length; i++) {
+//     const segment = segments[i];
+//     const progressBase = 25 + (i / totalSegments) * 70;
+//
+//     onProgress?.(progressBase, `Processing chunk ${i + 1}/${totalSegments}...`);
+//
+//     try {
+//       const result = await generateSubtitlesWithDeepgram(
+//         segment.file,
+//         language,
+//         (p) => onProgress?.(progressBase + (p * 0.7) / totalSegments, `Chunk ${i + 1}/${totalSegments}`)
+//       );
+//       const srtContent = deepgramToSrt(result);
+//
+//       // Adjust timestamps
+//       const adjustedSrt = adjustSrtTimestamps(srtContent, segment.startTime);
+//       results.push({ start: segment.startTime, srt: adjustedSrt });
+//
+//     } catch (error) {
+//       console.error(`[Router] Failed to process chunk ${i + 1}:`, error);
+//       throw error;
+//     }
+//   }
+//
+//   // Merge all SRT results
+//   onProgress?.(95, 'Merging results...');
+//   const mergedSrt = mergeSrtFiles(results.map(r => r.srt));
+//
+//   return mergedSrt;
+// }
 
 /**
  * Adjust SRT timestamps by offset
@@ -376,12 +377,12 @@ function formatTimestamp(seconds: number): string {
 export async function getRecommendedService(fileSizeMB: number): Promise<string> {
   const deepgramAvailable = await isDeepgramAvailable();
 
-  if (deepgramAvailable && fileSizeMB <= 100) {
-    return 'Deepgram (high quality)';
+  if (deepgramAvailable && fileSizeMB <= 2000) {
+    return 'Deepgram (high quality, supports up to 2GB)';
   }
 
-  if (fileSizeMB > 100 && deepgramAvailable) {
-    return 'Chunked processing';
+  if (fileSizeMB > 2000) {
+    return 'File too large (max 2GB for Deepgram)';
   }
 
   return 'Gemini AI';
