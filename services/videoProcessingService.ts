@@ -330,7 +330,7 @@ async function runVisualSubtitleGeneration(
 export async function generateResilientSubtitles(
   options: SubtitleGenerationOptions & { skipCache?: boolean },
 ): Promise<SubtitleGenerationResult> {
-  const { video, videoHash, onStatus, onPartialSubtitles, skipCache = false } = options;
+  const { video, videoHash, onStatus, onPartialSubtitles, skipCache = false, abortSignal } = options;
 
   onStatus?.({ stage: 'Checking cache...', progress: 5 });
   if (videoHash && !skipCache) {
@@ -500,7 +500,6 @@ export async function generateResilientSubtitles(
       // Map router service types to cache provider types
       const cacheProvider: 'gemini' | 'whisper' | 'visual' | undefined = 
         routerResult.usedService === 'deepgram' || 
-        routerResult.usedService === 'deepgram-chunked' || 
         routerResult.usedService === 'gemini-segmented'
           ? 'gemini' // Map deepgram and segmented services to gemini for cache
           : routerResult.usedService === 'gemini'

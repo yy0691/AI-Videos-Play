@@ -73,27 +73,8 @@ export async function isDeepgramAvailable(): Promise<boolean> {
     keyPrefix: apiKey.substring(0, 8) + '...'
   });
 
-  // 🎯 优先尝试直接调用Deepgram API（绕过Vercel）
-  try {
-    console.log('[Deepgram] 🔄 Trying direct API call (bypassing Vercel)...');
-    const testResponse = await fetch('https://api.deepgram.com/v1/projects', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Token ${apiKey}`,
-      },
-    });
-
-    if (testResponse.ok) {
-      console.log('[Deepgram] ✅ Direct API call successful! Will use direct mode (no Vercel proxy)');
-      return true;
-    } else {
-      console.warn('[Deepgram] ⚠️ Direct API call failed, falling back to proxy mode');
-    }
-  } catch (directError) {
-    console.log('[Deepgram] ℹ️ Direct API call not available (CORS or network), will try proxy mode');
-  }
-
-  // 备选：通过Vercel proxy验证（旧方案）
+  // 🎯 通过 Vercel proxy 验证（避免 CORS 问题）
+  // 不再尝试直接调用 Deepgram API 进行验证，因为会遇到 CORS 错误
   try {
     const testResponse = await fetch('/api/deepgram-proxy', {
       method: 'GET',
@@ -288,102 +269,16 @@ export async function generateSubtitlesWithDeepgram(
   // 如果在验证阶段检测到CORS错误，这里也会遇到相同问题
   const shouldTryDirectFirst = fileSizeMB <= DEEPGRAM_DIRECT_LIMIT_MB;
   
-  // 🎯 对于大文件，先尝试直接调用（如果不是太大）
-  // 注意：如果遇到CORS错误，会自动降级到压缩+proxy模式
-  let directCallFailed = false;
-  if (shouldTryDirectFirst && fileSizeMB > VERCEL_SIZE_LIMIT_MB && fileSizeMB <= 500) {
-    console.log(`[Deepgram] 🚀 Large file (${fileSizeMB.toFixed(2)}MB), will try direct API call first (bypassing Vercel)`);
-    console.log('[Deepgram] ⚠️ Warning: Large files may take longer or timeout. If this fails, will compress and retry.');
-    
-    // 先尝试直接调用，不压缩
-    try {
-      onProgress?.(10);
-      
-      const params = new URLSearchParams({
-        model: 'nova-2',
-        smart_format: 'true',
-        punctuate: 'true',
-        paragraphs: 'false',
-        utterances: 'false',
-      });
-
-      // 🎯 语言参数处理：标准化语言代码
-      const languageCode = normalizeLanguageCode(language);
-      if (languageCode) {
-        params.append('language', languageCode);
-        console.log('[Deepgram] 🌐 Language specified:', { input: language, normalized: languageCode });
-      } else {
-        console.log('[Deepgram] 🌐 Language auto-detection enabled (Deepgram will detect automatically)');
-      }
-
-      const contentType = file.type || 'video/mp4';
-      const directUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
-      
-      console.log('[Deepgram] 📤 Uploading to Deepgram directly (no compression needed)...');
-      
-      // 🎯 添加Content-Length头，帮助Deepgram正确读取请求
-      const headers: HeadersInit = {
-        'Authorization': `Token ${apiKey}`,
-        'Content-Type': contentType,
-      };
-      
-      // 对于File/Blob，添加Content-Length头
-      if (file instanceof File || file instanceof Blob) {
-        headers['Content-Length'] = file.size.toString();
-      }
-      
-      console.log('[Deepgram] Request headers:', {
-        'Content-Type': headers['Content-Type'],
-        'Content-Length': headers['Content-Length'],
-        'Authorization': 'Token ***'
-      });
-      
-      // 使用带超时的fetch，并添加重试机制
-      const directResponse = await retryWithBackoff(
-        () => fetchWithTimeout(
-          directUrl,
-          {
-            method: 'POST',
-            headers,
-            body: file,
-          },
-          requestTimeout
-        ),
-        2, // 最多重试2次（总共3次尝试）
-        2000 // 基础延迟2秒
-      );
-
-      onProgress?.(90);
-
-      if (directResponse.ok) {
-        const result: DeepgramResponse = await directResponse.json();
-        onProgress?.(100);
-        console.log('[Deepgram] ✅ Direct API call successful! No compression needed!');
-        logDeepgramResponse(result, 'direct call (no compression)');
-        return result;
-      } else {
-        const errorText = await directResponse.text();
-        console.warn('[Deepgram] ⚠️ Direct API call failed (will compress and retry):', {
-          status: directResponse.status,
-          statusText: directResponse.statusText,
-          error: errorText
-        });
-        
-        // 🎯 422错误通常表示请求不完整，可能是网络问题或文件太大
-        if (directResponse.status === 422) {
-          console.warn('[Deepgram] ⚠️ 422 Unprocessable Entity - Request may be incomplete');
-          console.warn('[Deepgram] 💡 This usually means the request body was too large or network was unstable');
-          console.warn('[Deepgram] 💡 Will try compression to reduce file size...');
-        }
-        
-        directCallFailed = true;
-      }
-    } catch (directError) {
-      const errorMsg = directError instanceof Error ? directError.message : String(directError);
-      console.log('[Deepgram] ℹ️ Direct API call failed (will compress and retry):', errorMsg);
-      directCallFailed = true;
-    }
-  }
+  // 🎯 新策略：所有大文件都先提取音频，避免 CORS 问题
+  // 原因：
+  // 1. Deepgram /v1/listen 端点可能不支持 CORS（需要在浏览器中测试）
+  // 2. 直接发送视频文件会浪费带宽（视频比音频大 10-20 倍）
+  // 3. 提取音频后，大部分文件可以通过 Vercel proxy 处理（< 4MB）
+  // 4. 只有极少数情况需要 Storage URL 模式
+  console.log(`[Deepgram] 📝 Strategy: Extract audio first to avoid CORS and reduce file size`);
+  
+  // 标记：对于大文件，始终先提取音频
+  let directCallFailed = fileSizeMB > VERCEL_SIZE_LIMIT_MB;
 
   // For large files that need compression or if direct call failed
   if (fileSizeMB > VERCEL_SIZE_LIMIT_MB || directCallFailed) {
@@ -898,9 +793,68 @@ export async function generateSubtitlesWithDeepgram(
     }
   }
 
-  // For small files (≤ 4MB), use direct upload
-  onProgress?.(10);
+  // 🎯 小文件（≤ 4MB）也提取音频，避免 CORS 和减少传输
+  // 原因：
+  // 1. 视频文件比音频大 10-20 倍
+  // 2. Deepgram 只需要音频，不需要视频帧
+  // 3. 通过 proxy 更安全（API Key 不暴露）
+  // 4. 完全避免 CORS 问题
+  
+  console.log(`[Deepgram] 📝 Small file (${fileSizeMB.toFixed(2)}MB), will extract audio first`);
+  console.log('[Deepgram] 💡 This avoids CORS and reduces transfer size');
+  
+  try {
+    // Import audio extraction service
+    const { extractAndCompressAudio, isAudioExtractionSupported } = await import('./audioExtractionService');
+    
+    // Check if audio extraction is supported
+    if (!isAudioExtractionSupported()) {
+      throw new Error('Audio extraction not supported in this browser. Please use Chrome, Edge, or Firefox.');
+    }
 
+    onProgress?.(10);
+    
+    // 🎯 小文件使用高质量压缩（32kbps）
+    const targetBitrate = 32000; // 32 kbps - 高质量
+    
+    console.log('[Deepgram] 🔧 Using high quality compression: 32kbps');
+    
+    // Extract and compress audio
+    const { audioBlob, originalSize, compressedSize, compressionRatio, duration } = await extractAndCompressAudio(
+      file,
+      {
+        onProgress: (progress, stage) => {
+          // Map extraction progress (0-100%) to 10-50% of total progress
+          onProgress?.(10 + progress * 0.4);
+          console.log(`[Deepgram] ${stage} (${progress.toFixed(0)}%)`);
+        },
+        targetBitrate,
+      }
+    );
+
+    onProgress?.(50);
+    
+    const compressedSizeMB = compressedSize / (1024 * 1024);
+    console.log('[Deepgram] Audio extracted successfully:', {
+      originalSize: `${fileSizeMB.toFixed(2)}MB`,
+      audioSize: `${compressedSizeMB.toFixed(2)}MB`,
+      compressionRatio: `${compressionRatio.toFixed(1)}x`,
+      savedSpace: `${((1 - compressedSize / originalSize) * 100).toFixed(1)}%`,
+      duration: `${(duration / 60).toFixed(1)} minutes`,
+    });
+
+    // 现在使用提取的音频通过 proxy 发送
+    file = audioBlob;
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.warn('[Deepgram] ⚠️ Audio extraction failed, will try sending original file:', errorMessage);
+    // 如果提取失败，继续使用原始文件（降级方案）
+  }
+
+  // 🔄 通过 Vercel proxy 发送（音频文件或原始文件）
+  onProgress?.(55);
+  
   // Build API URL with parameters
   const params = new URLSearchParams({
     model: 'nova-2',
@@ -916,83 +870,18 @@ export async function generateSubtitlesWithDeepgram(
     params.append('language', languageCode);
     console.log('[Deepgram] 🌐 Language specified:', { input: language, normalized: languageCode });
   } else {
-    console.log('[Deepgram] 🌐 Language auto-detection enabled (Deepgram will detect automatically)');
+    console.log('[Deepgram] 🌐 Language auto-detection enabled');
   }
 
-  // Determine content type - Deepgram accepts video files directly
+  // Determine content type
   const contentType = file.type || 'audio/wav';
-
-  // 🎯 方案1：尝试直接调用Deepgram API（绕过Vercel，无大小限制）
-  try {
-    console.log('[Deepgram] 🚀 Attempting direct API call (bypassing Vercel)...', {
-      fileSize: `${fileSizeMB.toFixed(2)}MB`,
-      contentType,
-      willBypassVercelLimit: true
-    });
-
-    const directUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
-    
-    // 🎯 添加Content-Length头，帮助Deepgram正确读取请求
-    const headers: HeadersInit = {
-      'Authorization': `Token ${apiKey}`,
-      'Content-Type': contentType,
-    };
-    
-    // 对于File/Blob，添加Content-Length头
-    if (file instanceof File || file instanceof Blob) {
-      headers['Content-Length'] = file.size.toString();
-    }
-    
-    console.log('[Deepgram] Request headers:', {
-      'Content-Type': headers['Content-Type'],
-      'Content-Length': headers['Content-Length'],
-      'Authorization': 'Token ***'
-    });
-    
-    // 使用带超时的fetch，并添加重试机制
-    const directResponse = await retryWithBackoff(
-      () => fetchWithTimeout(
-        directUrl,
-        {
-          method: 'POST',
-          headers,
-          body: file,
-        },
-        requestTimeout
-      ),
-      2, // 最多重试2次（总共3次尝试）
-      2000 // 基础延迟2秒
-    );
-
-    onProgress?.(90);
-
-    if (directResponse.ok) {
-      const result: DeepgramResponse = await directResponse.json();
-      onProgress?.(100);
-      console.log('[Deepgram] ✅ Direct API call successful! (bypassed Vercel)');
-      logDeepgramResponse(result, 'direct call (small file)');
-      return result;
-    } else {
-      const errorText = await directResponse.text();
-      console.warn('[Deepgram] ⚠️ Direct API call failed:', {
-        status: directResponse.status,
-        error: errorText
-      });
-      throw new Error(`Direct call failed: ${errorText}`);
-    }
-  } catch (directError) {
-    const directErrorMsg = directError instanceof Error ? directError.message : String(directError);
-    console.log('[Deepgram] ℹ️ Direct API call not available, falling back to proxy mode:', directErrorMsg);
-  }
-
-  // 🔄 方案2：降级到Vercel proxy模式（有4MB限制）
-  console.log('[Deepgram] 🔄 Using proxy mode (Vercel)');
   
   // Build proxy URL with query parameters
   const proxyUrl = `/api/deepgram-proxy?${params.toString()}`;
 
-  console.log('[Deepgram] Sending request through proxy:', {
+  console.log('[Deepgram] 📤 Sending through Vercel proxy:', {
     url: proxyUrl,
+    fileSize: `${(file.size / (1024 * 1024)).toFixed(2)}MB`,
     contentType,
     hasAuth: !!apiKey,
     keySource: settings.deepgramApiKey ? 'user' : 'system'
@@ -1003,7 +892,7 @@ export async function generateSubtitlesWithDeepgram(
     throw new Error('Operation cancelled by user');
   }
 
-  // Call Deepgram API through proxy (使用带超时的fetch，并添加重试机制)
+  // Call Deepgram API through proxy
   const response = await retryWithBackoff(
     () => fetchWithTimeout(
       proxyUrl,
@@ -1038,7 +927,8 @@ export async function generateSubtitlesWithDeepgram(
   onProgress?.(100);
 
   // 🎯 记录Deepgram返回的详细信息，便于诊断问题
-  logDeepgramResponse(result, 'proxy mode');
+  console.log('[Deepgram] ✅ Success via Vercel proxy!');
+  logDeepgramResponse(result, 'proxy mode (small file with audio extraction)');
 
   return result;
 }
