@@ -317,16 +317,30 @@ export async function generateSubtitlesWithDeepgram(
       
       console.log('[Deepgram] 📤 Uploading to Deepgram directly (no compression needed)...');
       
+      // 🎯 添加Content-Length头，帮助Deepgram正确读取请求
+      const headers: HeadersInit = {
+        'Authorization': `Token ${apiKey}`,
+        'Content-Type': contentType,
+      };
+      
+      // 对于File/Blob，添加Content-Length头
+      if (file instanceof File || file instanceof Blob) {
+        headers['Content-Length'] = file.size.toString();
+      }
+      
+      console.log('[Deepgram] Request headers:', {
+        'Content-Type': headers['Content-Type'],
+        'Content-Length': headers['Content-Length'],
+        'Authorization': 'Token ***'
+      });
+      
       // 使用带超时的fetch，并添加重试机制
       const directResponse = await retryWithBackoff(
         () => fetchWithTimeout(
           directUrl,
           {
             method: 'POST',
-            headers: {
-              'Authorization': `Token ${apiKey}`,
-              'Content-Type': contentType,
-            },
+            headers,
             body: file,
           },
           requestTimeout
@@ -345,7 +359,19 @@ export async function generateSubtitlesWithDeepgram(
         return result;
       } else {
         const errorText = await directResponse.text();
-        console.warn('[Deepgram] ⚠️ Direct API call failed (will compress and retry):', errorText);
+        console.warn('[Deepgram] ⚠️ Direct API call failed (will compress and retry):', {
+          status: directResponse.status,
+          statusText: directResponse.statusText,
+          error: errorText
+        });
+        
+        // 🎯 422错误通常表示请求不完整，可能是网络问题或文件太大
+        if (directResponse.status === 422) {
+          console.warn('[Deepgram] ⚠️ 422 Unprocessable Entity - Request may be incomplete');
+          console.warn('[Deepgram] 💡 This usually means the request body was too large or network was unstable');
+          console.warn('[Deepgram] 💡 Will try compression to reduce file size...');
+        }
+        
         directCallFailed = true;
       }
     } catch (directError) {
@@ -466,16 +492,30 @@ export async function generateSubtitlesWithDeepgram(
           console.log('[Deepgram] 📤 Uploading compressed audio directly to Deepgram (bypassing Vercel)...');
           console.log(`[Deepgram] 📊 Compressed audio: ${compressedSizeMB.toFixed(2)}MB (within Deepgram's 2GB limit)`);
           
+          // 🎯 添加Content-Length头，帮助Deepgram正确读取请求
+          const headers: HeadersInit = {
+            'Authorization': `Token ${apiKey}`,
+            'Content-Type': 'audio/wav',
+          };
+          
+          // 对于Blob，添加Content-Length头
+          if (audioBlob instanceof Blob) {
+            headers['Content-Length'] = audioBlob.size.toString();
+          }
+          
+          console.log('[Deepgram] Request headers:', {
+            'Content-Type': headers['Content-Type'],
+            'Content-Length': headers['Content-Length'],
+            'Authorization': 'Token ***' // 不记录完整key
+          });
+          
           // 使用带超时的fetch，并添加重试机制
           const directResponse = await retryWithBackoff(
             () => fetchWithTimeout(
               directUrl,
               {
                 method: 'POST',
-                headers: {
-                  'Authorization': `Token ${apiKey}`,
-                  'Content-Type': 'audio/wav',
-                },
+                headers,
                 body: audioBlob,
               },
               requestTimeout
@@ -687,16 +727,30 @@ export async function generateSubtitlesWithDeepgram(
           
           console.log('[Deepgram] 📤 Uploading compressed audio directly to Deepgram...');
           
+          // 🎯 添加Content-Length头，帮助Deepgram正确读取请求
+          const headers: HeadersInit = {
+            'Authorization': `Token ${apiKey}`,
+            'Content-Type': contentType,
+          };
+          
+          // 对于File/Blob，添加Content-Length头
+          if (file instanceof File || file instanceof Blob) {
+            headers['Content-Length'] = file.size.toString();
+          }
+          
+          console.log('[Deepgram] Request headers:', {
+            'Content-Type': headers['Content-Type'],
+            'Content-Length': headers['Content-Length'],
+            'Authorization': 'Token ***'
+          });
+          
           // 使用带超时的fetch，并添加重试机制
           const directResponse = await retryWithBackoff(
             () => fetchWithTimeout(
               directUrl,
               {
                 method: 'POST',
-                headers: {
-                  'Authorization': `Token ${apiKey}`,
-                  'Content-Type': contentType,
-                },
+                headers,
                 body: file,
               },
               requestTimeout
@@ -789,16 +843,30 @@ export async function generateSubtitlesWithDeepgram(
 
     const directUrl = `https://api.deepgram.com/v1/listen?${params.toString()}`;
     
+    // 🎯 添加Content-Length头，帮助Deepgram正确读取请求
+    const headers: HeadersInit = {
+      'Authorization': `Token ${apiKey}`,
+      'Content-Type': contentType,
+    };
+    
+    // 对于File/Blob，添加Content-Length头
+    if (file instanceof File || file instanceof Blob) {
+      headers['Content-Length'] = file.size.toString();
+    }
+    
+    console.log('[Deepgram] Request headers:', {
+      'Content-Type': headers['Content-Type'],
+      'Content-Length': headers['Content-Length'],
+      'Authorization': 'Token ***'
+    });
+    
     // 使用带超时的fetch，并添加重试机制
     const directResponse = await retryWithBackoff(
       () => fetchWithTimeout(
         directUrl,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Token ${apiKey}`,
-            'Content-Type': contentType,
-          },
+          headers,
           body: file,
         },
         requestTimeout

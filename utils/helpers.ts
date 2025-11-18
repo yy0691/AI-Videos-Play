@@ -628,7 +628,7 @@ export async function retryWithBackoff<T>(
         break;
       }
 
-      // Check if error is retryable (timeout, network error, 5xx errors)
+      // Check if error is retryable (timeout, network error, 5xx errors, 422 errors)
       const errorMessage = error instanceof Error ? error.message : String(error);
       const isRetryable = 
         errorMessage.includes('超时') ||
@@ -636,6 +636,8 @@ export async function retryWithBackoff<T>(
         errorMessage.includes('504') ||
         errorMessage.includes('502') ||
         errorMessage.includes('503') ||
+        errorMessage.includes('422') || // 422 Unprocessable Entity - 可能是网络问题导致请求不完整
+        errorMessage.includes('Unable to read') || // Deepgram 422错误
         errorMessage.includes('Failed to fetch') ||
         errorMessage.includes('NetworkError');
 
