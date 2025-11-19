@@ -74,6 +74,19 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
   const { t, language } = useLanguage();
   
+  // 🔍 调试：检查传入组件的字幕数据
+  useEffect(() => {
+    if (subtitles && subtitles.segments.length > 0) {
+      console.log('===== VideoDetail 组件接收到的字幕 =====');
+      console.log('字幕片段数:', subtitles.segments.length);
+      console.log('第1条字幕:');
+      console.log('  文本:', subtitles.segments[0].text);
+      console.log('  文本长度:', subtitles.segments[0].text.length);
+      console.log('  字符编码:', Array.from(subtitles.segments[0].text.substring(0, 20)).map(c => c.charCodeAt(0)));
+      console.log('  类型:', typeof subtitles.segments[0].text);
+    }
+  }, [subtitles]);
+  
   const activeSegmentRef = useRef<HTMLButtonElement>(null);
   const subtitleContainerRef = useRef<HTMLDivElement>(null);
   const [isGeneratingSubtitles, setIsGeneratingSubtitles] = useState(false);
@@ -151,6 +164,8 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
     setIsTranslating(false);
     setGenerationStatus({ active: false, stage: '', progress: 0 });
     setActiveTopic(null);
+    // 🔥 重要：切换视频时重置语言选择，避免用错误的语言识别新视频
+    setSelectedVideoLanguage(null);
     // Reset initial mount flag when video changes
     isInitialMountRef.current = true;
     userClickedRef.current = false;
@@ -1273,6 +1288,28 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
                   ? '请选择视频中实际使用的语言，这将提高字幕识别的准确性' 
                   : 'Please select the actual language used in the video to improve subtitle recognition accuracy'}
               </p>
+              <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  <div className="flex-1 text-xs text-amber-800">
+                    {language === 'zh' ? (
+                      <>
+                        <strong>重要提示：</strong>选择错误的语言会导致字幕识别完全错误！
+                        <br/>
+                        例如：中文视频选择"英文"会识别出无意义的英文单词。
+                      </>
+                    ) : (
+                      <>
+                        <strong>Important:</strong> Selecting wrong language will cause completely incorrect subtitles!
+                        <br/>
+                        Example: Selecting "English" for Chinese video will produce meaningless English words.
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="px-8 py-6 space-y-3 max-h-[60vh] overflow-y-auto">
               <button
@@ -1350,15 +1387,18 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
                   setShowSubtitleLanguageModal(false);
                   handleGenerateSubtitles(false, 'auto');
                 }}
-                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border-2 border-dashed border-slate-300 hover:bg-slate-100 hover:border-slate-400 transition"
+                className="w-full rounded-2xl bg-slate-50 px-4 py-3 text-left text-sm border-2 border-dashed border-amber-300 hover:bg-amber-50 hover:border-amber-400 transition"
               >
-                <div className="font-medium text-slate-900">
+                <div className="font-medium text-slate-900 flex items-center gap-2">
                   {language === 'zh' ? '自动检测 (Auto Detect)' : 'Auto Detect (自动检测)'}
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800">
+                    {language === 'zh' ? '不推荐' : 'Not Recommended'}
+                  </span>
                 </div>
-                <div className="text-xs text-slate-500 mt-0.5">
+                <div className="text-xs text-amber-700 mt-0.5 font-medium">
                   {language === 'zh' 
-                    ? '让系统自动识别视频语言（可能不够准确）' 
-                    : 'Let the system automatically detect the video language (may be less accurate)'}
+                    ? '⚠️ 可能识别错误导致字幕完全不准确，建议手动选择语言' 
+                    : '⚠️ May cause completely inaccurate subtitles, manual selection recommended'}
                 </div>
               </button>
             </div>
