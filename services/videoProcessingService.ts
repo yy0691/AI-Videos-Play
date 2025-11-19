@@ -664,6 +664,14 @@ async function prepareAnalysisPayload(
 ): Promise<{ subtitlesText?: string; frames?: string[]; audioData?: { data: string; mimeType: string; isUrl?: boolean }; usedTranscript: boolean; }> {
   const { video, subtitles, onStatus } = options;
 
+  // 🔍 调试：检查字幕数据
+  console.log('[Analysis] 📋 Preparing analysis payload...', {
+    hasSubtitles: !!subtitles,
+    subtitleCount: subtitles?.segments.length || 0,
+    videoId: video.id,
+    videoName: video.name,
+  });
+
   if (subtitles && subtitles.segments.length > 0) {
     onStatus?.({ stage: 'Using transcript for analysis...', progress: 15 });
     
@@ -674,10 +682,13 @@ async function prepareAnalysisPayload(
       .map((segment) => `[${formatTimestamp(segment.startTime)}] ${segment.text}`)
       .join('\n');
     
-    console.log(`[Analysis] Prepared transcript: ${sampledSegments.length} segments, ${subtitlesText.length} chars`);
+    console.log(`[Analysis] ✅ Prepared transcript: ${sampledSegments.length} segments, ${subtitlesText.length} chars`);
+    console.log(`[Analysis] 📝 First 200 chars of transcript:`, subtitlesText.substring(0, 200));
 
     return { subtitlesText, usedTranscript: true };
   }
+
+  console.log('[Analysis] ⚠️ No subtitles available, will use audio/frames instead');
 
   // Check if video has audio track - prefer audio over frames for analysis
   onStatus?.({ stage: 'Checking video metadata...', progress: 10 });
@@ -823,7 +834,17 @@ export async function generateResilientInsights(
 
   for (const type of typesToGenerate) {
     const prompt = prompts[type];
-    if (!prompt) continue;
+    if (!prompt) {
+      console.warn(`[Analysis] ⚠️ No prompt found for type: ${type}`);
+      continue;
+    }
+
+    console.log(`[Analysis] 🔄 Processing analysis type: ${type}`, {
+      hasPayload: !!payload,
+      hasSubtitlesText: !!payload.subtitlesText,
+      hasFrames: !!payload.frames,
+      hasAudioData: !!payload.audioData,
+    });
 
     const cacheKey = videoHash ? await getCachedAnalysis(videoHash, type) : null;
     let resultText = cacheKey;
@@ -835,29 +856,48 @@ export async function generateResilientInsights(
         progress: Math.round((completed / typesToGenerate.length) * 70 + (usedTranscript ? 20 : 30)),
       });
 
-      resultText = await retryWithBackoff(async () => {
-        return await analyzeVideo({ ...payload, prompt });
-      }, {
-        maxRetries: 4,
-        delayMs: 2000,
-        onRetry: (attempt, error) => {
-          const isOverload = error.message.toLowerCase().includes('overload') || error.message.includes('503');
-          const message = isOverload
-            ? `API overloaded, waiting to retry ${type} (${attempt}/4)...`
-            : `Retrying analysis for ${type} (${attempt}/4)...`;
+      try {
+        resultText = await retryWithBackoff(async () => {
+          console.log(`[Analysis] 🚀 Calling analyzeVideo for ${type}...`);
+          const result = await analyzeVideo({ ...payload, prompt });
+          console.log(`[Analysis] ✅ Got result for ${type}, length: ${result.length}`);
+          console.log(`[Analysis] 📄 First 300 chars of result:`, result.substring(0, 300));
+          return result;
+        }, {
+          maxRetries: 4,
+          delayMs: 2000,
+          onRetry: (attempt, error) => {
+            const isOverload = error.message.toLowerCase().includes('overload') || error.message.includes('503');
+            const message = isOverload
+              ? `API overloaded, waiting to retry ${type} (${attempt}/4)...`
+              : `Retrying analysis for ${type} (${attempt}/4)...`;
 
-          onStatus?.({
-            stage: message,
-            progress: Math.round((completed / typesToGenerate.length) * 70 + 25),
-          });
-        },
-      });
+            console.warn(`[Analysis] ⚠️ Retry ${attempt}/4 for ${type}:`, error.message);
 
-      fromCache = false;
+            onStatus?.({
+              stage: message,
+              progress: Math.round((completed / typesToGenerate.length) * 70 + 25),
+            });
+          },
+        });
 
-      if (videoHash) {
-        await cacheAnalysis(videoHash, type, resultText);
+        fromCache = false;
+
+        if (videoHash) {
+          await cacheAnalysis(videoHash, type, resultText);
+        }
+      } catch (error) {
+        console.error(`[Analysis] ❌ Failed to generate ${type}:`, error);
+        throw new Error(`Failed to generate ${type} analysis: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
+    } else {
+      console.log(`[Analysis] 💾 Using cached result for ${type}`);
+    }
+
+    // 验证结果不为空
+    if (!resultText || resultText.trim().length === 0) {
+      console.error(`[Analysis] ❌ Empty result for ${type}`);
+      throw new Error(`Analysis for ${type} returned empty result`);
     }
 
     const analysis: Analysis = {
@@ -871,6 +911,8 @@ export async function generateResilientInsights(
 
     await saveAnalysis(analysis);
     newAnalyses.push(analysis);
+
+    console.log(`[Analysis] ✅ Saved analysis for ${type}`);
 
     completed += 1;
     onStatus?.({

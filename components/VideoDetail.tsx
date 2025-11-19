@@ -277,19 +277,33 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
           setTimeout(() => {
             setClickedSegmentIndex(null);
           }, 2000);
+        } else if (subtitles && subtitles.segments.length > 0) {
+          // 如果没有提供 segmentIndex，根据时间计算对应的字幕索引
+          const index = subtitles.segments.findIndex(
+            (s) => time >= s.startTime && time <= s.endTime
+          );
+          if (index >= 0) {
+            setClickedSegmentIndex(index);
+            setTimeout(() => {
+              setClickedSegmentIndex(null);
+            }, 2000);
+          }
         }
         
         videoRef.current.currentTime = time;
         // 立即更新 currentTime 状态，确保 activeSegmentIndex 正确计算
         setCurrentTime(time);
         
-        // 等待 DOM 更新后滚动到对应字幕位置
-        // 使用双重延迟确保 ref 已经更新
+        // 立即滚动到对应字幕位置（不等待，因为我们已经设置了 clickedSegmentIndex）
+        // 使用多重延迟确保 DOM 和 ref 都已更新
         setTimeout(() => {
           requestAnimationFrame(() => {
-            scrollToActiveSegment();
+            // 再次延迟确保 activeSegmentRef 已经更新
+            setTimeout(() => {
+              scrollToActiveSegment();
+            }, 50);
           });
-        }, 100);
+        }, 50);
     }
   };
 
@@ -726,6 +740,14 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
       topics: t('analysisTopicsPrompt', targetLanguageName),
     };
 
+    // 🔍 调试：检查字幕数据
+    console.log('[VideoDetail] 📊 Generating insights...', {
+      hasSubtitles: !!subtitles,
+      subtitleCount: subtitles?.segments.length || 0,
+      videoHash: videoHash || 'not generated',
+      existingAnalyses: analyses.length,
+    });
+
     setGenerationStatus({
       active: true,
       stage: subtitles && subtitles.segments.length > 0 ? t('insightsAnalyzing') : t('insightsPreparingVideo'),
@@ -733,7 +755,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
     });
 
     try {
-      const { newAnalyses } = await generateResilientInsights({
+      const { newAnalyses, usedTranscript } = await generateResilientInsights({
         video,
         videoHash,
         subtitles,
@@ -742,12 +764,43 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         onStatus: ({ stage, progress }) => setGenerationStatus({ active: true, stage, progress }),
       });
 
+      console.log('[VideoDetail] ✅ Insights generated:', {
+        newAnalysesCount: newAnalyses.length,
+        usedTranscript,
+        analysisTypes: newAnalyses.map(a => a.type),
+      });
+
       if (newAnalyses.length > 0) {
         onAnalysesChange(video.id);
         onFirstInsightGenerated();
+        
+        // 显示成功提示
+        toast.success({
+          title: language === 'zh' ? '见解生成完成' : 'Insights Generated',
+          description: language === 'zh' 
+            ? `已生成 ${newAnalyses.length} 项分析结果` 
+            : `Generated ${newAnalyses.length} analysis results`,
+          duration: 3000
+        });
+      } else {
+        // 如果没有生成新的分析，可能是已经存在了
+        console.log('[VideoDetail] ℹ️ No new analyses generated (may already exist)');
+        toast.info({
+          title: language === 'zh' ? '提示' : 'Info',
+          description: language === 'zh' 
+            ? '所有见解已存在，无需重新生成' 
+            : 'All insights already exist',
+          duration: 2000
+        });
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'An unknown error occurred during analysis.');
+      console.error('[VideoDetail] ❌ Failed to generate insights:', err);
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred during analysis.';
+      toast.error({
+        title: language === 'zh' ? '生成失败' : 'Generation Failed',
+        description: errorMessage,
+        duration: 5000
+      });
     } finally {
       setGenerationStatus({ active: false, stage: '', progress: 0 });
     }
