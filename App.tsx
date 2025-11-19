@@ -284,7 +284,79 @@ const AppContent: React.FC<{
 
         if (error) {
           console.error('Linux.do OAuth error:', error);
-          toast.error({ title: 'Linux.do 登录失败', description: String(error) });
+          
+          // 提供更详细的错误信息和解决方案
+          let errorDescription = String(error);
+          let recommendations: string[] = [];
+          
+          if (error === 'invalid_request') {
+            errorDescription = '请求参数无效';
+            recommendations = [
+              '1. 检查 redirect_uri 是否与 Linux.do 应用中配置的回调 URL 完全匹配',
+              '2. 确保 Client ID 配置正确',
+              '3. 检查浏览器控制台查看完整的授权 URL',
+              '4. 确认所有必需参数都已包含（client_id, redirect_uri, response_type, scope, state, code_challenge, code_challenge_method）'
+            ];
+            
+            // 输出诊断信息到控制台
+            const storedRedirectUri = sessionStorage.getItem('linuxdo_redirect_uri');
+            console.error('OAuth invalid_request 诊断信息:', {
+              error,
+              currentUrl: window.location.href,
+              origin: window.location.origin,
+              pathname: window.location.pathname,
+              storedRedirectUri,
+              hasClientId: !!import.meta.env.VITE_LINUXDO_CLIENT_ID,
+              sessionStorageKeys: Object.keys(sessionStorage).filter(k => k.startsWith('linuxdo_')),
+            });
+            
+            // 尝试诊断配置
+            try {
+              const { diagnoseLinuxDoConfig } = await import('./services/linuxDoAuthService');
+              const diagnosis = await diagnoseLinuxDoConfig();
+              console.error('配置诊断结果:', diagnosis);
+              if (diagnosis.recommendations.length > 0) {
+                recommendations.push(...diagnosis.recommendations);
+              }
+            } catch (diagError) {
+              console.warn('无法执行配置诊断:', diagError);
+            }
+          } else if (error === 'unauthorized_client') {
+            errorDescription = '客户端未授权';
+            recommendations = [
+              '1. 检查 Client ID 是否正确',
+              '2. 确认在 Linux.do 中注册的 OAuth 应用状态为"已启用"',
+              '3. 检查回调 URL 是否在允许列表中'
+            ];
+          } else if (error === 'access_denied') {
+            errorDescription = '用户拒绝了授权请求';
+            recommendations = [
+              '1. 用户取消了授权',
+              '2. 请重新点击登录按钮并完成授权'
+            ];
+          } else if (error === 'unsupported_response_type') {
+            errorDescription = '不支持的响应类型';
+            recommendations = [
+              '1. 检查 response_type 参数是否为 "code"',
+              '2. 确认 Linux.do OAuth 实现支持授权码流程'
+            ];
+          } else if (error === 'invalid_scope') {
+            errorDescription = '无效的权限范围';
+            recommendations = [
+              '1. 检查 scope 参数是否为 "read"',
+              '2. 确认 Linux.do OAuth 应用支持该权限范围'
+            ];
+          }
+          
+          const fullMessage = recommendations.length > 0 
+            ? `${errorDescription}\n\n可能的原因：\n${recommendations.join('\n')}`
+            : errorDescription;
+          
+          toast.error({ 
+            title: 'Linux.do 登录失败', 
+            description: fullMessage,
+            duration: 8000 // 显示更长时间以便用户阅读
+          });
           return;
         }
 

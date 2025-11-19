@@ -238,6 +238,59 @@ function normalizeLanguageCode(language?: string): string | undefined {
 }
 
 /**
+ * Estimate Deepgram processing time based on file size and audio duration
+ * 
+ * @param fileSizeMB - File size in MB
+ * @param audioDurationSeconds - Audio duration in seconds
+ * @param needsAudioExtraction - Whether audio extraction is needed
+ * @returns Estimated time in seconds (min and max)
+ */
+export function estimateDeepgramProcessingTime(
+  fileSizeMB: number,
+  audioDurationSeconds: number,
+  needsAudioExtraction: boolean = false
+): { min: number; max: number } {
+  // Deepgram 处理速度：通常比实时快 2-5 倍
+  // 保守估算：使用 3 倍实时速度（即 1 分钟音频需要 20 秒处理）
+  const PROCESSING_SPEED_FACTOR = 3; // 3x real-time
+  
+  // 上传速度估算（基于文件大小）
+  // 假设平均上传速度：10-50 MB/s（取决于网络）
+  const UPLOAD_SPEED_MIN_MBPS = 10; // 保守估算
+  const UPLOAD_SPEED_MAX_MBPS = 50; // 乐观估算
+  
+  // 音频提取时间估算（如果需要）
+  // 通常音频提取需要 5-15% 的视频时长
+  let audioExtractionTimeMin = 0;
+  let audioExtractionTimeMax = 0;
+  if (needsAudioExtraction) {
+    const extractionRatioMin = 0.05; // 5% of video duration
+    const extractionRatioMax = 0.15; // 15% of video duration
+    audioExtractionTimeMin = audioDurationSeconds * extractionRatioMin;
+    audioExtractionTimeMax = audioDurationSeconds * extractionRatioMax;
+  }
+  
+  // 上传时间估算
+  const uploadTimeMin = fileSizeMB / UPLOAD_SPEED_MAX_MBPS; // 使用更快的速度得到最小时间
+  const uploadTimeMax = fileSizeMB / UPLOAD_SPEED_MIN_MBPS; // 使用更慢的速度得到最大时间
+  
+  // 处理时间估算（基于音频时长）
+  const processingTime = audioDurationSeconds / PROCESSING_SPEED_FACTOR;
+  
+  // 总时间 = 音频提取（如果需要）+ 上传 + 处理 + 缓冲（10-20秒）
+  const bufferTimeMin = 10;
+  const bufferTimeMax = 20;
+  
+  const totalTimeMin = audioExtractionTimeMin + uploadTimeMin + processingTime + bufferTimeMin;
+  const totalTimeMax = audioExtractionTimeMax + uploadTimeMax + processingTime + bufferTimeMax;
+  
+  return {
+    min: Math.max(5, Math.ceil(totalTimeMin)), // 至少 5 秒
+    max: Math.ceil(totalTimeMax)
+  };
+}
+
+/**
  * Generate subtitles using Deepgram API
  * Uses Nova-2 model for best accuracy/cost balance
  * 

@@ -5,8 +5,10 @@
 
 import { supabase } from './authService';
 
+// Linux.do OAuth 端点配置
 const LINUXDO_AUTHORIZE_URL = 'https://connect.linux.do/oauth2/authorize';
 const LINUXDO_TOKEN_URL = 'https://connect.linux.do/oauth2/token';
+// 用户信息端点：https://connect.linux.do/api/user
 const LINUXDO_USER_INFO_URL = 'https://connect.linux.do/api/user';
 
 // Cache for client ID and secret
@@ -18,6 +20,15 @@ let cachedConfig: { clientId: string; clientSecret?: string } | null = null;
  * 1. A 'oauth_config' table with 'provider' and 'key' columns
  * 2. A 'app_config' table with 'key' and 'value' columns
  * 3. Environment variable as fallback
+ * 
+ * ⚠️ 重要说明：
+ * - 此配置与 Supabase Dashboard 中的 Authentication → Providers 配置（如 Slack OIDC）完全独立
+ * - Supabase 的 Slack OIDC 配置用于 Supabase Auth 系统（用户通过 Slack 登录 Supabase）
+ * - Linux.do OAuth 配置存储在数据库的 oauth_config 表中，使用 provider='linuxdo' 区分
+ * - 两者不会冲突，因为：
+ *   1. 查询时使用 .eq('provider', 'linuxdo') 过滤，只获取 Linux.do 的配置
+ *   2. 不同的存储位置和用途
+ *   3. 完全独立的认证流程
  */
 async function getLinuxDoConfig(): Promise<{ clientId: string; clientSecret?: string } | null> {
   // Return cached config if available
@@ -175,7 +186,7 @@ export async function buildLinuxDoAuthUrl(redirectUri: string): Promise<string> 
 
   const authUrl = `${LINUXDO_AUTHORIZE_URL}?${params.toString()}`;
   
-  // Debug logging (remove in production)
+  // Debug logging - 提供详细的诊断信息
   console.log('Linux.do OAuth URL:', {
     clientId: clientId.substring(0, 8) + '...', // Only log partial client ID
     redirectUri: normalizedRedirectUri,
@@ -184,6 +195,24 @@ export async function buildLinuxDoAuthUrl(redirectUri: string): Promise<string> 
     hasCodeChallenge: !!codeChallenge,
     authorizeUrl: LINUXDO_AUTHORIZE_URL,
     fullUrl: authUrl.substring(0, 100) + '...', // 只显示部分 URL，避免日志过长
+  });
+  
+  // 🔍 诊断信息：帮助排查 invalid_request 错误
+  console.log('🔍 OAuth 请求诊断信息:', {
+    'redirect_uri (必须与 Linux.do 应用中配置的完全匹配)': normalizedRedirectUri,
+    '当前页面 URL': typeof window !== 'undefined' ? window.location.href : 'N/A',
+    '当前 origin': typeof window !== 'undefined' ? window.location.origin : 'N/A',
+    '当前 pathname': typeof window !== 'undefined' ? window.location.pathname : 'N/A',
+    '参数列表': {
+      client_id: '已设置',
+      redirect_uri: normalizedRedirectUri,
+      response_type: 'code',
+      scope: 'read',
+      state: '已设置',
+      code_challenge: '已设置',
+      code_challenge_method: 'S256',
+    },
+    '提示': '如果遇到 invalid_request 错误，请确保：1) redirect_uri 与 Linux.do 应用中配置的回调 URL 完全匹配（包括协议、域名、路径、尾部斜杠）；2) Client ID 配置正确；3) 所有参数都已正确设置'
   });
 
   return authUrl;

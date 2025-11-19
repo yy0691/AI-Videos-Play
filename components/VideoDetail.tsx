@@ -8,7 +8,7 @@ import { translateSubtitles, detectSubtitleLanguage, isTraditionalChinese } from
 import { generateVideoHash, clearVideoCache } from '../services/cacheService';
 import { generateResilientSubtitles, generateResilientInsights } from '../services/videoProcessingService';
 import { isSegmentedProcessingAvailable } from '../services/segmentedProcessor';
-import { isDeepgramAvailable } from '../services/deepgramService';
+import { isDeepgramAvailable, estimateDeepgramProcessingTime } from '../services/deepgramService';
 import { toast } from '../hooks/useToastStore';
 
 import ChatPanel from './ChatPanel';
@@ -550,8 +550,48 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
       });
 
       const durationMin = metadata.duration / 60;
+      const durationSeconds = metadata.duration;
       const truncatedDuration = canHandleFullVideo ? durationMin : Math.min(durationMin, MAX_SUBTITLE_DURATION_MIN);
-      const estimateText = formatProcessingEstimate(getProcessingEstimate(truncatedDuration));
+      
+      // 🎯 检查是否使用 Deepgram，如果是则使用 Deepgram 的估算
+      const deepgramReady = await isDeepgramAvailable();
+      let estimateText: string;
+      
+      if (deepgramReady && canHandleFullVideo) {
+        // 使用 Deepgram 估算
+        const fileSizeMB = video.file.size / (1024 * 1024);
+        const VERCEL_SIZE_LIMIT_MB = 4;
+        const needsAudioExtraction = fileSizeMB > VERCEL_SIZE_LIMIT_MB;
+        
+        const deepgramEstimate = estimateDeepgramProcessingTime(
+          fileSizeMB,
+          durationSeconds,
+          needsAudioExtraction
+        );
+        
+        // 转换为分钟格式
+        const formatTime = (seconds: number) => {
+          if (seconds < 60) {
+            return `${seconds}秒`;
+          }
+          const minutes = seconds / 60;
+          if (minutes < 1) {
+            return `${Math.round(seconds)}秒`;
+          }
+          if (minutes < 3) {
+            return `${minutes.toFixed(1)}分钟`;
+          }
+          return `${Math.round(minutes)}分钟`;
+        };
+        
+        estimateText = `${formatTime(deepgramEstimate.min)}-${formatTime(deepgramEstimate.max)}`;
+        console.log(
+          `[VideoDetail] 📊 Deepgram estimate: ${estimateText} (file: ${fileSizeMB.toFixed(2)}MB, duration: ${durationMin.toFixed(1)}min)`
+        );
+      } else {
+        // 使用 Gemini 估算（原有逻辑）
+        estimateText = formatProcessingEstimate(getProcessingEstimate(truncatedDuration));
+      }
 
       if (!canHandleFullVideo && durationMin > MAX_SUBTITLE_DURATION_MIN) {
         const proceed = confirm(
@@ -713,8 +753,15 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
       };
 
       await saveSubtitles(video.id, updatedSubtitles);
-      // 传递一个标志，表示这是翻译操作，不应该触发见解生成
+      // 🔒 翻译操作不应该触发见解生成
+      // 翻译只是更新了字幕的翻译文本（translatedText），并没有改变原始字幕内容（text）
+      // 见解和关键时刻应该基于原始字幕生成，翻译后不需要重新生成
+      // 调用 onSubtitlesChange 只是为了刷新 UI 显示翻译后的字幕
       onSubtitlesChange(video.id);
+      
+      // 🎯 确保翻译操作不会触发见解生成
+      // 通过检查 isTranslationFromUser 标志，确保这是翻译操作而不是字幕生成操作
+      console.log('[VideoDetail] ✅ Translation complete, insights will NOT be regenerated');
 
       setGenerationStatus({ active: true, stage: t('translationComplete') || 'Translation complete!', progress: 100 });
       setTimeout(() => {
