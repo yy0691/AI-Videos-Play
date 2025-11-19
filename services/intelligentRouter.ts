@@ -61,7 +61,10 @@ export async function generateSubtitlesIntelligent(
       console.log('[Router] 🎯 Attempting Deepgram (high quality)...');
       console.log('[Router] 📊 Deepgram request details:', {
         fileSize: `${fileSizeMB.toFixed(2)}MB`,
-        language: language || 'auto',
+        languageReceived: language,
+        languageType: typeof language,
+        languageIsUndefined: language === undefined,
+        languageIsNull: language === null,
         timestamp: new Date().toISOString()
       });
       onProgress?.(0, 'Using Deepgram (high quality)...');

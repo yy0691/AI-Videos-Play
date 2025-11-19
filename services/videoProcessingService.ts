@@ -7,6 +7,7 @@ import {
   cacheAnalysis,
   getCachedAnalysis,
   SubtitleCacheStatus,
+  clearVideoCache,
 } from './cacheService';
 import {
   retryWithBackoff,
@@ -339,9 +340,26 @@ export async function generateResilientSubtitles(
       const status: SubtitleCacheStatus = cached.status ?? 'complete';
       const segments = normalizeSubtitleSegments(parseSrt(cached.content));
 
-      if (segments.length > 0 && status === 'complete') {
+      console.log('[VideoProcessing] 📦 Found cached subtitles:', {
+        cachedLanguage: cached.language,
+        requestedLanguage: options.sourceLanguage,
+        status: status,
+        segmentCount: segments.length,
+        languageMatch: cached.language === options.sourceLanguage
+      });
+
+      // ⚠️ 只有当缓存的语言与请求的语言匹配时才使用缓存
+      if (segments.length > 0 && status === 'complete' && cached.language === options.sourceLanguage) {
+        console.log('[VideoProcessing] ✅ Using cached subtitles (language matches)');
         onStatus?.({ stage: 'Loaded subtitles from cache.', progress: 100 });
         return { segments, srt: cached.content, fromCache: true, provider: 'cache' };
+      } else if (segments.length > 0 && status === 'complete') {
+        console.warn('[VideoProcessing] ⚠️ Cache language mismatch - regenerating:', {
+          cached: cached.language,
+          requested: options.sourceLanguage
+        });
+        // 清除不匹配的缓存
+        await clearVideoCache(videoHash);
       }
 
       if (segments.length > 0 && status === 'partial') {
@@ -466,6 +484,12 @@ export async function generateResilientSubtitles(
     }
 
     const languageCode = LANGUAGE_CODE_MAP[options.sourceLanguage] ?? undefined;
+
+    console.log('[VideoProcessing] 🗣️ Language mapping:', {
+      sourceLanguageName: options.sourceLanguage,
+      mappedCode: languageCode,
+      allMappings: LANGUAGE_CODE_MAP
+    });
 
     const routerResult: RouterResult = await generateSubtitlesIntelligent({
       file: video.file,

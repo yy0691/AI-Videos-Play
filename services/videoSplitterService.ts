@@ -178,11 +178,11 @@ async function loadFFmpeg(onProgress?: (progress: number) => void): Promise<FFmp
         return instance;
       } catch (error) {
         lastError = error;
-        console.error(`[FFmpeg] Failed to load from ${baseUrl}:`, error);
+        console.log(`[FFmpeg] Unable to load from ${baseUrl} (this is expected in production):`, error instanceof Error ? error.message : error);
       }
     }
 
-    throw lastError ?? new Error('Unable to load FFmpeg from any configured source');
+    throw lastError ?? new Error('FFmpeg not available (Deepgram will be used instead)');
   })();
 
   try {
@@ -364,7 +364,7 @@ export async function isFFmpegAvailable(): Promise<boolean> {
     console.log('[FFmpeg] Successfully loaded and ready');
     return true;
   } catch (error) {
-    console.warn('[FFmpeg] Not available (this is OK - Deepgram will be used instead):', error instanceof Error ? error.message : error);
+    console.info('[FFmpeg] ℹ️ Not available - using Deepgram instead (supports up to 2GB files)');
     return false;
   } finally {
     // Ensure we clear timeout when the promise settles

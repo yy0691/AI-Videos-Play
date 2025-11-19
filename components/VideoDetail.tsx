@@ -406,6 +406,20 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
           };
           await saveSubtitles(video.id, newSubtitles);
           onSubtitlesChange(video.id);
+          
+          // 🎯 字幕导入完成后，如果没有见解则自动生成
+          if (analyses.length === 0) {
+            console.log('[VideoDetail] 📊 Subtitles imported, auto-generating insights...');
+            toast.info({
+              title: language === 'zh' ? '开始生成见解' : 'Generating Insights',
+              description: language === 'zh' ? '正在分析视频内容...' : 'Analyzing video content...',
+              duration: 3000
+            });
+            // 延迟一下让导入操作完成
+            setTimeout(() => {
+              handleGenerateInsights();
+            }, 500);
+          }
         } catch (err) {
             alert(err instanceof Error ? err.message : 'Failed to parse subtitle file.');
         }
@@ -542,7 +556,12 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
     const targetLanguageName = language === 'zh' ? 'Chinese' : 'English';
     const prompt = t('generateSubtitlesPrompt', currentSourceLanguage, targetLanguageName);
 
-    console.log(`[VideoDetail] 🌍 Using source language: ${currentSourceLanguage} (from code: ${langToUse})`);
+    console.log(`[VideoDetail] 🌍 Language selection details:`, {
+      userSelectedCode: langToUse,
+      mappedToFullName: currentSourceLanguage,
+      targetLanguage: targetLanguageName,
+      uiLanguage: language
+    });
 
     try {
       const result = await generateResilientSubtitles({
@@ -572,6 +591,27 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
       onSubtitlesChange(video.id);
 
       setGenerationStatus({ active: true, stage: 'Complete!', progress: 100 });
+      
+      // 🎯 字幕生成完成后，自动生成见解
+      setTimeout(() => {
+        setGenerationStatus({ active: false, stage: '', progress: 0 });
+        
+        // 检查是否已有见解，如果没有则自动生成
+        if (analyses.length === 0) {
+          console.log('[VideoDetail] 📊 Subtitles generated, auto-generating insights...');
+          toast.info({
+            title: language === 'zh' ? '开始生成见解' : 'Generating Insights',
+            description: language === 'zh' ? '正在分析视频内容...' : 'Analyzing video content...',
+            duration: 3000
+          });
+          // 延迟一下让用户看到字幕完成的提示
+          setTimeout(() => {
+            handleGenerateInsights();
+          }, 1500);
+        }
+      }, 1000);
+      
+      return; // 提前返回，避免执行下面的 finally
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to generate subtitles.';
       console.error('Subtitle generation error:', err);
@@ -593,6 +633,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
         alert(`${userMessage}\n\nPartial results may have been saved. Try reloading the page.`);
       }
     } finally {
+      // 只有在错误情况下才执行 finally（成功时已经 return 了）
       abortControllerRef.current = null;
       setIsGeneratingSubtitles(false);
       setStreamingSubtitles('');
