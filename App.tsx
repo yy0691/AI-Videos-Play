@@ -401,17 +401,29 @@ const AppContent: React.FC<{
           }
           
           // 🔒 必须使用存储的 redirect_uri，确保与授权请求时完全一致
-          const redirectUri = sessionStorage.getItem('linuxdo_redirect_uri') || 'https://insight.luoyuanai.cn';
+          // 如果没有存储的值，使用固定值（不带尾部斜杠）
+          let redirectUri = storedRedirectUri;
+          
+          // 如果存储的值不存在，构建一个（确保不带尾部斜杠）
+          if (!redirectUri) {
+            const fallbackUri = window.location.origin;
+            redirectUri = fallbackUri.endsWith('/') ? fallbackUri.slice(0, -1) : fallbackUri;
+            console.warn('⚠️ 未找到存储的 redirect_uri，使用 fallback:', redirectUri);
+          }
+          
+          // 🔧 确保 redirect_uri 不带尾部斜杠（统一处理）
+          if (redirectUri.endsWith('/') && redirectUri.split('/').length === 4) {
+            redirectUri = redirectUri.slice(0, -1);
+          }
           
           console.log('Exchanging code for token with redirect_uri:', redirectUri);
-          console.log('✅ 使用存储的 redirect_uri，确保与授权请求时完全一致');
+          console.log('✅ 使用统一的 redirect_uri（不带尾部斜杠），确保与授权请求时完全一致');
           console.log('🔍 redirect_uri 一致性检查:', {
             stored: storedRedirectUri,
+            used: redirectUri,
             currentUrl: window.location.href,
             origin: window.location.origin,
             pathname: window.location.pathname,
-            matches: storedRedirectUri === `${window.location.origin}${window.location.pathname}` || 
-                     storedRedirectUri === `${window.location.origin}${window.location.pathname.replace(/\/$/, '')}`,
           });
           
           // Clean up stored redirect_uri after use (but only after successful token exchange)

@@ -159,12 +159,16 @@ export async function buildLinuxDoAuthUrl(redirectUri: string): Promise<string> 
 
   // Ensure redirect_uri is properly encoded and matches exactly what's registered
   // ⚠️ 重要：redirect_uri 必须与 Linux.do 应用中配置的回调 URL 完全匹配
-  // 包括协议、域名、路径、尾部斜杠等所有细节
   // 
-  // 问题：之前代码会自动移除尾部斜杠，但这可能导致与 Linux.do 应用中配置的不匹配
-  // 解决方案：保持原始 redirect_uri，不自动移除尾部斜杠
-  // 用户需要在 Linux.do 应用中配置的回调 URL 与代码中使用的完全一致
-  const normalizedRedirectUri = redirectUri.trim();
+  // 🔧 核心修复：强制移除尾部斜杠，确保统一
+  // Linux.do OAuth 对 redirect_uri 的匹配非常严格，必须完全一致
+  // 为了确保授权请求和回调时使用相同的值，统一移除尾部斜杠
+  let normalizedRedirectUri = redirectUri.trim();
+  
+  // 强制移除尾部斜杠（根路径时）
+  if (normalizedRedirectUri.endsWith('/') && normalizedRedirectUri.split('/').length === 4) {
+    normalizedRedirectUri = normalizedRedirectUri.slice(0, -1);
+  }
   
   // 🔍 诊断：记录原始 redirect_uri，帮助用户确认配置
   console.log('🔍 redirect_uri 诊断信息:', {
