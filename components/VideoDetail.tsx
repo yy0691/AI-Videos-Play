@@ -284,9 +284,9 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
           );
           if (index >= 0) {
             setClickedSegmentIndex(index);
-            setTimeout(() => {
-              setClickedSegmentIndex(null);
-            }, 2000);
+          setTimeout(() => {
+            setClickedSegmentIndex(null);
+          }, 2000);
           }
         }
         
@@ -300,7 +300,7 @@ const VideoDetail: React.FC<VideoDetailProps> = ({ video, subtitles, analyses, n
           requestAnimationFrame(() => {
             // 再次延迟确保 activeSegmentRef 已经更新
             setTimeout(() => {
-              scrollToActiveSegment();
+            scrollToActiveSegment();
             }, 50);
           });
         }, 50);

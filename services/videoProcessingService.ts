@@ -857,35 +857,35 @@ export async function generateResilientInsights(
       });
 
       try {
-        resultText = await retryWithBackoff(async () => {
+      resultText = await retryWithBackoff(async () => {
           console.log(`[Analysis] 🚀 Calling analyzeVideo for ${type}...`);
           const result = await analyzeVideo({ ...payload, prompt });
           console.log(`[Analysis] ✅ Got result for ${type}, length: ${result.length}`);
           console.log(`[Analysis] 📄 First 300 chars of result:`, result.substring(0, 300));
           return result;
-        }, {
-          maxRetries: 4,
-          delayMs: 2000,
-          onRetry: (attempt, error) => {
-            const isOverload = error.message.toLowerCase().includes('overload') || error.message.includes('503');
-            const message = isOverload
-              ? `API overloaded, waiting to retry ${type} (${attempt}/4)...`
-              : `Retrying analysis for ${type} (${attempt}/4)...`;
+      }, {
+        maxRetries: 4,
+        delayMs: 2000,
+        onRetry: (attempt, error) => {
+          const isOverload = error.message.toLowerCase().includes('overload') || error.message.includes('503');
+          const message = isOverload
+            ? `API overloaded, waiting to retry ${type} (${attempt}/4)...`
+            : `Retrying analysis for ${type} (${attempt}/4)...`;
 
             console.warn(`[Analysis] ⚠️ Retry ${attempt}/4 for ${type}:`, error.message);
 
-            onStatus?.({
-              stage: message,
-              progress: Math.round((completed / typesToGenerate.length) * 70 + 25),
-            });
-          },
-        });
+          onStatus?.({
+            stage: message,
+            progress: Math.round((completed / typesToGenerate.length) * 70 + 25),
+          });
+        },
+      });
 
-        fromCache = false;
+      fromCache = false;
 
-        if (videoHash) {
-          await cacheAnalysis(videoHash, type, resultText);
-        }
+      if (videoHash) {
+        await cacheAnalysis(videoHash, type, resultText);
+      }
       } catch (error) {
         console.error(`[Analysis] ❌ Failed to generate ${type}:`, error);
         throw new Error(`Failed to generate ${type} analysis: ${error instanceof Error ? error.message : 'Unknown error'}`);
