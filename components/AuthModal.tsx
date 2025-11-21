@@ -86,25 +86,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess, initi
     setLoading(true);
 
     try {
-      // 构建回调 URL - 使用当前页面的完整路径，确保与注册的回调 URL 完全匹配
-      // Linux.do OAuth 要求 redirect_uri 必须完全匹配注册时的 URI
-      // 
-      // 🔧 核心修复：强制统一 redirect_uri，移除尾部斜杠
-      // 确保授权请求和回调时使用完全相同的值
-      let redirectUri = `${window.location.origin}${window.location.pathname}`;
-      
-      // 强制移除尾部斜杠（根路径时），确保统一
-      if (redirectUri.endsWith('/') && redirectUri.split('/').length === 4) {
-        redirectUri = redirectUri.slice(0, -1);
-      }
-      
-      console.log('Building Linux.do OAuth URL:');
-      console.log('  构建的 redirect_uri:', redirectUri);
-      console.log('⚠️ 请确保 Linux.do 应用中的回调 URL 配置为:', redirectUri);
-      console.log('💡 如果仍然出现 invalid_request 错误，请检查 Linux.do 应用中的回调 URL 配置是否与此值完全一致');
-      
-      // 构建授权 URL
-      const authUrl = await buildLinuxDoAuthUrl(redirectUri);
+      // 🔧 简化：不需要手动构建 redirect_uri，由 buildLinuxDoAuthUrl 自动处理
+      // 与 Google/GitHub 登录保持一致，前端代码更简洁
+      const authUrl = await buildLinuxDoAuthUrl();
       
       // 在当前窗口跳转到授权页面（OAuth 标准流程）
       window.location.href = authUrl;
@@ -247,10 +231,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess, initi
                   title={t('linuxDoLogin')}
                 >
                   {/* Linux.do logo - using a terminal/command line icon as placeholder */}
-                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M2 4h20v16H2V4zm2 2v12h16V6H4zm2 2h12v2H6V8zm0 4h8v2H6v-2z"/>
-                    <circle cx="18" cy="10" r="1" fill="currentColor"/>
-                    <circle cx="18" cy="14" r="1" fill="currentColor"/>
+                  <svg width="4" height="4" viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg">
+                      <clipPath id="a"><circle cx="60" cy="60" r="47"/></clipPath>
+                      <circle fill="#f0f0f0" cx="60" cy="60" r="50"/>
+                      <rect fill="#1c1c1e" clip-path="url(#a)" x="10" y="10" width="100" height="30"/>
+                      <rect fill="#f0f0f0" clip-path="url(#a)" x="10" y="40" width="100" height="40"/>
+                      <rect fill="#ffb003" clip-path="url(#a)" x="10" y="80" width="100" height="30"/>
                   </svg>
                   <span className="hidden sm:inline">{t('linuxDo')}</span>
                 </button>

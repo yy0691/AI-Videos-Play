@@ -153,12 +153,24 @@ async function generatePKCE(): Promise<{ codeVerifier: string; codeChallenge: st
 
 /**
  * Build OAuth authorization URL
+ * @param redirectUri - Optional redirect URI. If not provided, will be automatically built from window.location
+ *                      类似 Google/GitHub 登录，前端不需要手动构建 redirect_uri
  */
-export async function buildLinuxDoAuthUrl(redirectUri: string): Promise<string> {
+export async function buildLinuxDoAuthUrl(redirectUri?: string): Promise<string> {
   const clientId = await getClientId();
   if (!clientId) {
     console.error('Linux.do Client ID not configured.');
     throw new Error('Linux.do Client ID 未配置。请在 Supabase 数据库的 oauth_config 或 app_config 表中添加配置，或设置环境变量 VITE_LINUXDO_CLIENT_ID。');
+  }
+
+  // 🔧 核心改进：如果未提供 redirectUri，自动从 window.location 构建
+  // 这样前端代码就可以像 Google/GitHub 登录一样简洁，不需要手动构建 redirect_uri
+  if (!redirectUri && typeof window !== 'undefined') {
+    redirectUri = `${window.location.origin}${window.location.pathname}`;
+  }
+
+  if (!redirectUri) {
+    throw new Error('无法构建 redirect_uri：请在浏览器环境中调用此函数，或手动提供 redirect_uri 参数。');
   }
 
   // Ensure redirect_uri is properly encoded and matches exactly what's registered

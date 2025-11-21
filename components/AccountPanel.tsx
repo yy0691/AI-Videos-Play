@@ -101,25 +101,9 @@ const AccountPanel: React.FC<AccountPanelProps> = ({ user, onSignOut }) => {
     setLinuxDoStatus("connecting");
 
     try {
-      // 构建回调 URL - 使用当前页面的完整路径，确保与注册的回调 URL 完全匹配
-      // Linux.do OAuth 要求 redirect_uri 必须完全匹配注册时的 URI
-      // 
-      // 🔧 核心修复：强制统一 redirect_uri，移除尾部斜杠
-      // 确保授权请求和回调时使用完全相同的值
-      let redirectUri = `${window.location.origin}${window.location.pathname}`;
-      
-      // 强制移除尾部斜杠（根路径时），确保统一
-      if (redirectUri.endsWith('/') && redirectUri.split('/').length === 4) {
-        redirectUri = redirectUri.slice(0, -1);
-      }
-      
-      console.log('Building Linux.do OAuth URL:');
-      console.log('  构建的 redirect_uri:', redirectUri);
-      console.log('⚠️ 请确保 Linux.do 应用中的回调 URL 配置为:', redirectUri);
-      console.log('💡 如果仍然出现 invalid_request 错误，请检查 Linux.do 应用中的回调 URL 配置是否与此值完全一致');
-      
-      // 构建授权 URL
-      const authUrl = await buildLinuxDoAuthUrl(redirectUri);
+      // 🔧 简化：不需要手动构建 redirect_uri，由 buildLinuxDoAuthUrl 自动处理
+      // 与 Google/GitHub 登录保持一致，前端代码更简洁
+      const authUrl = await buildLinuxDoAuthUrl();
       
       // 在当前窗口跳转到授权页面（OAuth 标准流程）
       window.location.href = authUrl;
